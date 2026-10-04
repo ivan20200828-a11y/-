@@ -4,8 +4,9 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
 
-import { kyc } from '@/services';
-import { useClientDeal, useDeals } from '@/state/deals';
+import { clientApi } from '@/api';
+import { withClientDeal } from '@/state/client-gate';
+import { useClient } from '@/state/deals';
 import type { Passport } from '@/state/types';
 import { Button, Card, ErrorText, Field, H2, Hint, Pill, Row, Screen, Stepper } from '@/ui/kit';
 import { useColors } from '@/ui/theme';
@@ -15,27 +16,33 @@ const FIELDS: [keyof Passport, string][] = [
   ['issued', 'Кем выдан'], ['issuedAt', 'Дата выдачи'], ['address', 'Адрес регистрации'],
 ];
 
-type Shot = string | 'sample' | null;
+/** A photo as a local URI plus its base64 for upload, or 'sample' when the client skipped photos in the demo. */
+type Shot = { uri: string; base64?: string } | 'sample' | null;
 
-export default function Documents() {
-  const deal = useClientDeal();
-  const { update } = useDeals();
+export default withClientDeal(function Documents({ deal }) {
+  const { token, step, setDeal } = useClient();
   const [passportShot, setPassportShot] = useState<Shot>(null);
   const [selfieShot, setSelfieShot] = useState<Shot>(null);
   const [data, setData] = useState<Passport | null>(deal.passport ?? null);
   const [match, setMatch] = useState<number | null>(deal.faceMatch ?? null);
   const [busy, setBusy] = useState(false);
+  const [recognizing, setRecognizing] = useState(false);
   const [error, setError] = useState('');
 
   const recognize = async (p: Shot, s: Shot) => {
-    setBusy(true);
-    const [passport, face] = await Promise.all([
-      kyc.recognizePassport(p === 'sample' ? null : p),
-      kyc.matchFace(p === 'sample' ? null : p, s === 'sample' ? null : s),
-    ]);
-    setData(passport);
-    setMatch(face);
-    setBusy(false);
+    setRecognizing(true);
+    try {
+      const r = await clientApi.kyc(token, {
+        passportImage: p && p !== 'sample' ? p.base64 : undefined,
+        selfieImage: s && s !== 'sample' ? s.base64 : undefined,
+      });
+      setDeal(r.deal);
+      setData(r.passport);
+      setMatch(r.faceMatch);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setRecognizing(false);
   };
 
   const take = async (which: 'passport' | 'selfie') => {
@@ -46,15 +53,15 @@ export default function Documents() {
       if (!perm.granted) return setError('Нет доступа к камере. Разрешите его в настройках телефона.');
     }
     const opts: ImagePicker.ImagePickerOptions = {
-      mediaTypes: ['images'], quality: 0.7,
+      mediaTypes: ['images'], quality: 0.6, base64: true,
       cameraType: which === 'selfie' ? ImagePicker.CameraType.front : ImagePicker.CameraType.back,
     };
     const res = useCamera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
     if (res.canceled) return;
-    const uri = res.assets[0].uri;
-    const p = which === 'passport' ? uri : passportShot;
-    const s = which === 'selfie' ? uri : selfieShot;
-    which === 'passport' ? setPassportShot(uri) : setSelfieShot(uri);
+    const shot = { uri: res.assets[0].uri, base64: res.assets[0].base64 ?? undefined };
+    const p = which === 'passport' ? shot : passportShot;
+    const s = which === 'selfie' ? shot : selfieShot;
+    which === 'passport' ? setPassportShot(shot) : setSelfieShot(shot);
     if (p && s) recognize(p, s);
   };
 
@@ -66,8 +73,11 @@ export default function Documents() {
     recognize(p, s);
   };
 
-  const confirm = () => {
-    update(deal.id, { passport: data!, faceMatch: match!, clientName: data!.fio, stage: 'contract' });
+  const confirm = async () => {
+    setBusy(true);
+    const err = await step('passport', { passport: data });
+    setBusy(false);
+    if (err) return setError(err);
     router.push('/client/contract');
   };
 
@@ -79,15 +89,15 @@ export default function Documents() {
         <Hint>Сфотографируйте разворот паспорта с фото и сделайте селфи. Данные заполнятся сами.</Hint>
         <ShotButton title="Разворот паспорта" shot={passportShot} onPress={() => take('passport')} />
         <ShotButton title="Селфи с паспортом" shot={selfieShot} onPress={() => take('selfie')} />
-        {!data && <Button ghost title="Заполнить примером без фото" onPress={useSample} disabled={busy} />}
+        {!data && <Button ghost title="Заполнить примером без фото" onPress={useSample} disabled={recognizing} />}
         {!!error && <ErrorText>{error}</ErrorText>}
-        {busy && (
+        {recognizing && (
           <Row>
             <ActivityIndicator />
             <Hint>Распознаём документ и сверяем лицо…</Hint>
           </Row>
         )}
-        {data && !busy && (
+        {data && !recognizing && (
           <>
             <Row>
               <Pill kind="ok">Лицо совпадает: {match}%</Pill>
@@ -99,11 +109,11 @@ export default function Documents() {
             ))}
           </>
         )}
-        <Button title="Данные верны, к договору" onPress={confirm} disabled={!data || busy || FIELDS.some(([k]) => !data[k].trim())} />
+        <Button title="Данные верны, к договору" onPress={confirm} loading={busy} disabled={!data || recognizing || FIELDS.some(([k]) => !data[k].trim())} />
       </Card>
     </Screen>
   );
-}
+});
 
 function ShotButton({ title, shot, onPress }: { title: string; shot: Shot; onPress: () => void }) {
   const c = useColors();
@@ -112,7 +122,7 @@ function ShotButton({ title, shot, onPress }: { title: string; shot: Shot; onPre
       style={{ flexDirection: 'row', gap: 12, alignItems: 'center', padding: 14, borderRadius: 12, borderWidth: 1.5,
         borderStyle: shot ? 'solid' : 'dashed', borderColor: shot ? c.accent : c.line, backgroundColor: shot ? c.accentSoft : c.sunk }}>
       <View style={{ width: 64, height: 48, borderRadius: 8, backgroundColor: c.line, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
-        {shot && shot !== 'sample' ? <Image source={{ uri: shot }} style={{ width: 64, height: 48 }} contentFit="cover" />
+        {shot && shot !== 'sample' ? <Image source={{ uri: shot.uri }} style={{ width: 64, height: 48 }} contentFit="cover" />
           : <Text style={{ color: c.muted, fontSize: 18 }}>{shot ? '✓' : '+'}</Text>}
       </View>
       <View style={{ flex: 1 }}>

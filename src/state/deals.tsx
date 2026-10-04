@@ -1,93 +1,100 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+
+import { clientApi, managerApi, type DealEvent } from '@/api';
 
 import type { Deal, Stage } from './types';
 
-const daysAgo = (n: number) => new Date(Date.now() - n * 86400000);
+// ---------- client: one deal, opened by the token from the invite link ----------
 
-const SEED: Deal[] = [
-  {
-    id: 'd147', no: 'Д-2026-0147', seller: 'ООО «Альфа-Сделка»', city: 'Москва',
-    subject: 'Автомобиль Haval Jolion, 2025 г.', total: 2490000, downPct: 20, term: 24,
-    clientName: 'Смирнов Алексей Петрович', phone: '+7 916 555-18-40', stage: 'invited',
-    createdAt: daysAgo(0), installmentsPaid: [],
-  },
-  {
-    id: 'd139', no: 'Д-2026-0139', seller: 'ООО «Альфа-Сделка»', city: 'Москва',
-    subject: 'Квартира-студия, ЖК «Река»', total: 6800000, downPct: 30, term: 36,
-    clientName: 'Ковалёва Мария Игоревна', phone: '+7 925 301-44-12', stage: 'active',
-    createdAt: daysAgo(70), signature: { id: 'ПЭП-D139-SAMPLE', at: daysAgo(68) },
-    downPayment: { at: daysAgo(67), method: 'sbp' },
-    installmentsPaid: [{ n: 1, at: daysAgo(37) }, { n: 2, at: daysAgo(7) }],
-  },
-  {
-    id: 'd142', no: 'Д-2026-0142', seller: 'ООО «Альфа-Сделка»', city: 'Москва',
-    subject: 'Kia Sportage 2024', total: 3150000, downPct: 15, term: 18,
-    clientName: 'Ибрагимов Руслан Тимурович', phone: '+7 903 718-02-55', stage: 'sign',
-    createdAt: daysAgo(3), installmentsPaid: [],
-  },
-  {
-    id: 'd145', no: 'Д-2026-0145', seller: 'ООО «Альфа-Сделка»', city: 'Москва',
-    subject: 'Кухонный гарнитур под заказ', total: 420000, downPct: 30, term: 6,
-    clientName: 'Орлова Анна Сергеевна', phone: '+7 977 640-90-31', stage: 'documents',
-    createdAt: daysAgo(1), installmentsPaid: [],
-  },
-];
-
-type NewDeal = Pick<Deal, 'clientName' | 'phone' | 'subject' | 'total' | 'downPct' | 'term'>;
-
-type Store = {
-  deals: Deal[];
-  /** The deal the client side of the app is working on (in production: from the invite link). */
-  clientDealId: string;
-  get: (id: string) => Deal;
-  update: (id: string, patch: Partial<Deal>) => void;
-  advance: (id: string, stage: Stage) => void;
-  create: (d: NewDeal) => Deal;
-  resetClientDeal: () => void;
+type ClientStore = {
+  token: string;
+  setToken: (t: string) => void;
+  deal: Deal | null;
+  error: string;
+  load: () => Promise<void>;
+  /** Runs a server step; on failure returns the error text instead of throwing. */
+  step: (step: string, body?: object) => Promise<string | null>;
+  setDeal: (d: Deal) => void;
 };
 
-const Ctx = createContext<Store | null>(null);
+const ClientCtx = createContext<ClientStore | null>(null);
 
-export function DealsProvider({ children }: { children: ReactNode }) {
-  const [deals, setDeals] = useState<Deal[]>(SEED);
-  const clientDealId = 'd147';
+/** The demo deal; a real invite link opens /client?t=<token>. */
+const DEMO_TOKEN = 'demo';
 
-  const update = (id: string, patch: Partial<Deal>) =>
-    setDeals((all) => all.map((d) => (d.id === id ? { ...d, ...patch } : d)));
+export function ClientProvider({ children }: { children: ReactNode }) {
+  const [token, setTokenState] = useState(DEMO_TOKEN);
+  const [deal, setDeal] = useState<Deal | null>(null);
+  const [error, setError] = useState('');
 
-  const store: Store = {
-    deals,
-    clientDealId,
-    get: (id) => deals.find((d) => d.id === id)!,
-    update,
-    advance: (id, stage) => update(id, { stage }),
-    create: (n) => {
-      const seq = 148 + deals.length - SEED.length;
-      const deal: Deal = {
-        ...n, id: `d${seq}`, no: `Д-2026-0${seq}`, seller: 'ООО «Альфа-Сделка»', city: 'Москва',
-        stage: 'invited', createdAt: new Date(), installmentsPaid: [],
-      };
-      setDeals((all) => [deal, ...all]);
-      return deal;
+  const load = useCallback(async () => {
+    try {
+      setDeal(await clientApi.get(token));
+      setError('');
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [token]);
+
+  const store: ClientStore = {
+    token,
+    setToken: (t) => {
+      if (t === token) return;
+      setDeal(null);
+      setTokenState(t);
     },
-    resetClientDeal: () => {
-      const seed = SEED.find((d) => d.id === clientDealId)!;
-      setDeals((all) => all.map((d) => (d.id === clientDealId ? { ...seed } : d)));
+    deal,
+    error,
+    load,
+    setDeal,
+    step: async (step, body) => {
+      try {
+        setDeal(await clientApi.step(token, step, body));
+        return null;
+      } catch (e) {
+        return (e as Error).message;
+      }
     },
   };
-
-  return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
+  return <ClientCtx.Provider value={store}>{children}</ClientCtx.Provider>;
 }
 
-export function useDeals() {
-  const s = useContext(Ctx);
-  if (!s) throw new Error('useDeals must be used inside DealsProvider');
+export function useClient() {
+  const s = useContext(ClientCtx);
+  if (!s) throw new Error('useClient must be used inside ClientProvider');
   return s;
 }
 
+/** The current client deal on screens that are only reachable once it has loaded. */
 export function useClientDeal() {
-  const s = useDeals();
-  return s.get(s.clientDealId);
+  const { deal } = useClient();
+  if (!deal) throw new Error('Client deal is not loaded');
+  return deal;
+}
+
+// ---------- manager ----------
+
+export function useDealList() {
+  const [deals, setDeals] = useState<Deal[] | null>(null);
+  const [error, setError] = useState('');
+  useFocusEffect(
+    useCallback(() => {
+      managerApi.list().then((d) => { setDeals(d); setError(''); }, (e: Error) => setError(e.message));
+    }, []),
+  );
+  return { deals, error };
+}
+
+export function useDealDetails(id: string) {
+  const [data, setData] = useState<{ deal: Deal; events: DealEvent[] } | null>(null);
+  const [error, setError] = useState('');
+  useFocusEffect(
+    useCallback(() => {
+      managerApi.get(id).then((d) => { setData(d); setError(''); }, (e: Error) => setError(e.message));
+    }, [id]),
+  );
+  return { ...data, error };
 }
 
 export const STAGE_LABEL: Record<Stage, string> = {

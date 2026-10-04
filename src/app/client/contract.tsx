@@ -2,15 +2,24 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
-import { useClientDeal, useDeals } from '@/state/deals';
+import { withClientDeal } from '@/state/client-gate';
+import { useClient } from '@/state/deals';
 import { ContractText } from '@/ui/contract';
-import { Button, Card, H2, Hint, Screen, Stepper } from '@/ui/kit';
+import { Button, Card, ErrorText, H2, Hint, Screen, Stepper } from '@/ui/kit';
 import { useColors } from '@/ui/theme';
 
-export default function Contract() {
-  const deal = useClientDeal();
-  const { advance } = useDeals();
+export default withClientDeal(function Contract({ deal }) {
+  const { step } = useClient();
   const [agreed, setAgreed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const next = async () => {
+    setBusy(true);
+    const err = await step('contract/accept');
+    setBusy(false);
+    if (err) return setError(err);
+    router.push('/client/sign');
+  };
   const c = useColors();
   return (
     <Screen>
@@ -27,9 +36,9 @@ export default function Contract() {
           </View>
           <Text style={{ color: c.fg, fontSize: 15, flex: 1 }}>Я прочитал договор и согласен с условиями и графиком платежей</Text>
         </Pressable>
-        <Button title="Перейти к подписанию" disabled={!agreed}
-          onPress={() => { advance(deal.id, 'sign'); router.push('/client/sign'); }} />
+        <Button title="Перейти к подписанию" disabled={!agreed} loading={busy} onPress={next} />
+        {!!error && <ErrorText>{error}</ErrorText>}
       </Card>
     </Screen>
   );
-}
+});

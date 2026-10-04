@@ -1,0 +1,38 @@
+import type { DealService } from './deals.ts';
+
+const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString();
+
+/** Demo deals for an empty database. The first one opens with the client token "demo". */
+export function seedDemo(svc: DealService) {
+  if (svc.list().length > 0) return;
+  svc.create({ clientName: 'Ковалёва Мария Игоревна', phone: '+7 925 301-44-12', subject: 'Квартира-студия, ЖК «Река»', total: 6800000, downPct: 30, term: 36 },
+    { id: 'd139', token: 'demo-kovaleva', createdAt: daysAgo(70) });
+  svc.create({ clientName: 'Ибрагимов Руслан Тимурович', phone: '+7 903 718-02-55', subject: 'Kia Sportage 2024', total: 3150000, downPct: 15, term: 18 },
+    { id: 'd142', token: 'demo-ibragimov', createdAt: daysAgo(3) });
+  svc.create({ clientName: 'Орлова Анна Сергеевна', phone: '+7 977 640-90-31', subject: 'Кухонный гарнитур под заказ', total: 420000, downPct: 30, term: 6 },
+    { id: 'd145', token: 'demo-orlova', createdAt: daysAgo(1) });
+  svc.create({ clientName: 'Смирнов Алексей Петрович', phone: '+7 916 555-18-40', subject: 'Автомобиль Haval Jolion, 2025 г.', total: 2490000, downPct: 20, term: 24 },
+    { id: 'd147', token: 'demo', createdAt: daysAgo(0) });
+}
+
+/** Walks a demo deal through every stage with test codes so the manager list shows deals at different stages. */
+export async function advanceDemo(svc: DealService) {
+  const walk = async (token: string, upTo: 'documents' | 'sign' | 'active', payments = 0) => {
+    if (svc.byToken(token).stage !== 'invited') return;
+    svc.start(token);
+    await svc.sendPhoneCode(token, svc.byToken(token).phone);
+    svc.verifyPhone(token, '1234');
+    if (upTo === 'documents') return;
+    const { passport } = await svc.recognize(token, null, null);
+    svc.confirmPassport(token, { ...passport, fio: svc.byToken(token).clientName });
+    svc.acceptContract(token);
+    if (upTo === 'sign') return;
+    await svc.sendSignCode(token);
+    svc.verifySign(token, '1234');
+    await svc.pay(token, 'down', 'sbp');
+    for (let i = 0; i < payments; i++) await svc.pay(token, 'next', 'sbp');
+  };
+  await walk('demo-kovaleva', 'active', 2);
+  await walk('demo-ibragimov', 'sign');
+  await walk('demo-orlova', 'documents');
+}

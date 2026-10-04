@@ -2,23 +2,23 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 
 import { formatDate, rub } from '@/lib/money';
-import { payments } from '@/services';
-import { useClientDeal, useDeals } from '@/state/deals';
+import { withClientDeal } from '@/state/client-gate';
+import { useClient } from '@/state/deals';
 import { downAmount, type PayMethod } from '@/state/types';
-import { Big, Button, Card, Field, H2, Hint, Row, Screen, Stamp, Stepper, Tabs } from '@/ui/kit';
+import { Big, Button, Card, ErrorText, Field, H2, Hint, Row, Screen, Stamp, Stepper, Tabs } from '@/ui/kit';
 
-export default function Pay() {
-  const deal = useClientDeal();
-  const { update } = useDeals();
+export default withClientDeal(function Pay({ deal }) {
+  const { step } = useClient();
   const [method, setMethod] = useState<PayMethod>('sbp');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const amount = downAmount(deal);
 
   const pay = async () => {
     setBusy(true);
-    const res = await payments.pay(amount, method);
+    const err = await step('pay', { what: 'down', method });
     setBusy(false);
-    update(deal.id, { downPayment: { at: res.at, method }, stage: 'active' });
+    if (err) return setError(err);
     router.replace('/client/cabinet');
   };
 
@@ -40,7 +40,8 @@ export default function Pay() {
           </Row>
         )}
         <Button title={`Оплатить ${rub(amount)}`} onPress={pay} loading={busy} />
+        {!!error && <ErrorText>{error}</ErrorText>}
       </Card>
     </Screen>
   );
-}
+});

@@ -1,29 +1,28 @@
-import { router } from 'expo-router';
 import { useState } from 'react';
 
 import { formatDate, rub } from '@/lib/money';
 import { dealProgress } from '@/lib/schedule';
-import { payments } from '@/services';
-import { useClientDeal, useDeals } from '@/state/deals';
+import { withClientDeal } from '@/state/client-gate';
+import { useClient } from '@/state/deals';
 import { downAmount } from '@/state/types';
 import { ContractText, ScheduleTable } from '@/ui/contract';
-import { Big, Button, Card, H1, H2, KV, Label, Progress, Screen, Stamp, Tabs, Txt } from '@/ui/kit';
+import { Big, Button, Card, ErrorText, H1, H2, KV, Label, Progress, Screen, Stamp, Tabs, Txt } from '@/ui/kit';
 
 type Tab = 'sched' | 'contract' | 'hist';
 
-export default function Cabinet() {
-  const deal = useClientDeal();
-  const { update, resetClientDeal } = useDeals();
+export default withClientDeal(function Cabinet({ deal }) {
+  const { step } = useClient();
   const [tab, setTab] = useState<Tab>('sched');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const { rows, sum, next } = dealProgress(deal);
 
   const payNext = async () => {
     if (!next) return;
     setBusy(true);
-    const res = await payments.pay(next.amount, 'sbp');
+    const err = await step('pay', { what: 'next', method: 'sbp' });
     setBusy(false);
-    update(deal.id, { installmentsPaid: [...deal.installmentsPaid, { n: next.n, at: res.at }] });
+    if (err) return setError(err);
     setTab('hist');
   };
 
@@ -41,6 +40,7 @@ export default function Cabinet() {
           <Big>{rub(next.amount)}</Big>
           <Txt>до {formatDate(next.date)} · платёж {next.n} из {deal.term}</Txt>
           <Button title="Оплатить через СБП" onPress={payNext} loading={busy} />
+          {!!error && <ErrorText>{error}</ErrorText>}
         </Card>
       ) : (
         <Card><H2>Рассрочка полностью погашена</H2></Card>
@@ -61,7 +61,6 @@ export default function Cabinet() {
           ]} />
         )}
       </Card>
-      <Button ghost title="Пройти оформление заново (демо)" onPress={() => { resetClientDeal(); router.replace('/client'); }} />
     </Screen>
   );
-}
+});

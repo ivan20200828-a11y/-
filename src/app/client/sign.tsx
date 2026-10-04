@@ -1,31 +1,24 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 
-import { esign, sms } from '@/services';
-import { useClientDeal, useDeals } from '@/state/deals';
+import { withClientDeal } from '@/state/client-gate';
+import { useClient } from '@/state/deals';
 import { Button, Card, CodeField, ErrorText, H2, Hint, Screen, Stepper } from '@/ui/kit';
 
-export default function Sign() {
-  const deal = useClientDeal();
-  const { update } = useDeals();
+export default withClientDeal(function Sign({ deal }) {
+  const { step } = useClient();
   const [sent, setSent] = useState(false);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const send = async () => {
+  const run = async (name: string, body: object, then: () => void) => {
     setBusy(true);
-    await sms.sendCode(deal.phone);
-    setSent(true);
+    const err = await step(name, body);
     setBusy(false);
-  };
-  const sign = async () => {
-    setBusy(true);
-    const signature = await esign.sign(deal.id, code);
-    setBusy(false);
-    if (!signature) return setError('Код не подходит. Проверьте SMS и введите код ещё раз.');
-    update(deal.id, { signature, stage: 'pay' });
-    router.push('/client/pay');
+    if (err) return setError(err);
+    setError('');
+    then();
   };
 
   return (
@@ -37,13 +30,14 @@ export default function Sign() {
         {sent ? (
           <>
             <CodeField label="Код подписи" value={code} onChangeText={(t) => { setCode(t); setError(''); }} />
-            <Button title="Подписать договор" onPress={sign} loading={busy} disabled={code.length < 4} />
+            <Button title="Подписать договор" loading={busy} disabled={code.length < 4}
+              onPress={() => run('sign/verify', { code }, () => router.push('/client/pay'))} />
           </>
         ) : (
-          <Button title="Получить код подписи" onPress={send} loading={busy} />
+          <Button title="Получить код подписи" loading={busy} onPress={() => run('sign/send', {}, () => setSent(true))} />
         )}
         {!!error && <ErrorText>{error}</ErrorText>}
       </Card>
     </Screen>
   );
-}
+});

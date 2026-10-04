@@ -8,28 +8,28 @@ export type Passport = {
 };
 
 export type Stage = 'invited' | 'phone' | 'documents' | 'contract' | 'sign' | 'pay' | 'active';
-
 export type PayMethod = 'sbp' | 'card';
 
+/** A deal as the API returns it. Dates are ISO strings. */
 export type Deal = {
   id: string;
   no: string;
   token: string;
   seller: string;
-  subject: string;
   city: string;
+  subject: string;
   total: number;
   downPct: number;
   term: number;
   clientName: string;
   phone: string;
   stage: Stage;
-  createdAt: Date;
+  createdAt: string;
   passport?: Passport;
   faceMatch?: number;
-  signature?: { id: string; at: Date };
-  downPayment?: { at: Date; method: PayMethod };
-  installmentsPaid: { n: number; at: Date }[];
+  signature?: { id: string; at: string };
+  downPayment?: { at: string; method: PayMethod };
+  installmentsPaid: { n: number; at: string }[];
 };
 
-export const downAmount = (d: Pick<Deal, 'total' | 'downPct'>) => Math.round((d.total * d.downPct) / 100);
+export type DealEvent = { at: string; type: string; data: unknown };

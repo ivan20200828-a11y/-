@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { TEST_MODE } from '@/services';
+import { TEST_MODE } from '@/api';
 import type { Stage } from '@/state/types';
 
 import { useColors } from './theme';
@@ -197,4 +197,20 @@ export const tableStyles = StyleSheet.create({
 export function ErrorText({ children }: { children: ReactNode }) {
   const c = useColors();
   return <Text accessibilityRole="alert" style={{ color: c.seal, fontSize: 13 }}>{children}</Text>;
+}
+
+export function Loading({ error, onRetry }: { error?: string; onRetry?: () => void }) {
+  const c = useColors();
+  return (
+    <Card style={{ alignItems: 'center' }}>
+      {error ? (
+        <>
+          <Text style={{ color: c.seal, fontSize: 15, textAlign: 'center' }}>{error}</Text>
+          {onRetry && <Button ghost title="Повторить" onPress={onRetry} />}
+        </>
+      ) : (
+        <ActivityIndicator color={c.accent} />
+      )}
+    </Card>
+  );
 }

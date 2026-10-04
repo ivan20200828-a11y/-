@@ -1,13 +1,13 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { useColorScheme } from 'react-native';
 
-import { DealsProvider } from '@/state/deals';
+import { ClientProvider } from '@/state/deals';
 
 export default function RootLayout() {
   const scheme = useColorScheme();
   return (
     <ThemeProvider value={scheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <DealsProvider>
+      <ClientProvider>
         <Stack screenOptions={{ headerBackTitle: 'Назад' }}>
           <Stack.Screen name="index" options={{ title: 'Сделка онлайн' }} />
           <Stack.Screen name="client/index" options={{ title: 'Ваша сделка' }} />
@@ -21,7 +21,7 @@ export default function RootLayout() {
           <Stack.Screen name="manager/new" options={{ title: 'Новая сделка' }} />
           <Stack.Screen name="manager/[id]" options={{ title: 'Сделка' }} />
         </Stack>
-      </DealsProvider>
+      </ClientProvider>
     </ThemeProvider>
   );
 }

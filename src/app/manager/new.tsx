@@ -3,14 +3,13 @@ import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { parseAmount, rub } from '@/lib/money';
-import { useDeals } from '@/state/deals';
-import { Button, Card, Field, H2, Hint, Row, Screen } from '@/ui/kit';
+import { managerApi } from '@/api';
+import { Button, Card, ErrorText, Field, H2, Hint, Row, Screen } from '@/ui/kit';
 import { useColors } from '@/ui/theme';
 
 const TERMS = [3, 6, 12, 18, 24, 36];
 
 export default function NewDeal() {
-  const { create } = useDeals();
   const c = useColors();
   const [clientName, setClientName] = useState('');
   const [phone, setPhone] = useState('');
@@ -18,15 +17,23 @@ export default function NewDeal() {
   const [total, setTotal] = useState('');
   const [downPct, setDownPct] = useState('20');
   const [term, setTerm] = useState(12);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   const sum = parseAmount(total);
   const pct = Math.min(100, parseAmount(downPct));
   const down = Math.round((sum * pct) / 100);
   const valid = clientName.trim() && subject.trim() && phone.replace(/\D/g, '').length >= 11 && sum > 0;
 
-  const submit = () => {
-    const deal = create({ clientName: clientName.trim(), phone, subject: subject.trim(), total: sum, downPct: pct, term });
-    router.replace(`/manager/${deal.id}`);
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const deal = await managerApi.create({ clientName: clientName.trim(), phone, subject: subject.trim(), total: sum, downPct: pct, term });
+      router.replace(`/manager/${deal.id}`);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
   };
 
   return (
@@ -52,7 +59,8 @@ export default function NewDeal() {
           </View>
         </View>
         {sum > 0 && <Hint>Взнос {rub(down)}, затем {term} платежей по {rub((sum - down) / term)}.</Hint>}
-        <Button title="Создать сделку и пригласить клиента" onPress={submit} disabled={!valid} />
+        <Button title="Создать сделку и пригласить клиента" onPress={submit} disabled={!valid} loading={busy} />
+        {!!error && <ErrorText>{error}</ErrorText>}
         <Hint>Клиент получит SMS со ссылкой на оформление (в тестовом режиме SMS не отправляется).</Hint>
       </Card>
     </Screen>
