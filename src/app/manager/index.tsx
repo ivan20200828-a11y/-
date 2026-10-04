@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { Pressable, View } from 'react-native';
 
 import { rub } from '@/lib/money';
+import { authApi } from '@/api';
 import { dealProgress } from '@/lib/schedule';
 import { STAGE_LABEL, useDealList } from '@/state/deals';
 import type { Stage } from '@/state/types';
@@ -17,6 +18,7 @@ export default function Deals() {
         <H2>Сделки</H2>
         <Hint>Статус меняется, когда клиент проходит этапы. Сделка демо-клиента обновляется, пока вы проходите оформление в разделе «Я клиент».</Hint>
         <Button title="Новая сделка" onPress={() => router.push('/manager/new')} />
+        <Button ghost title="Выйти" onPress={async () => { await authApi.logout(); router.replace('/manager/login'); }} />
       </Card>
       {!deals && <Loading error={error} />}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>

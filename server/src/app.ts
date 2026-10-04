@@ -1,17 +1,20 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 
+import { AuthService, type Manager } from './auth.ts';
+import { contractPdf } from './contract-pdf.ts';
 import type { DB } from './db.ts';
 import { ApiError, DealService, type NewDeal } from './deals.ts';
 import { TEST_MODE, type Providers } from './providers.ts';
 import type { Passport, PayMethod } from './types.ts';
 
-export type AppOptions = { db: DB; providers: Providers; managerKey: string; logger?: boolean };
+export type AppOptions = { db: DB; providers: Providers; logger?: boolean };
 
 const image = (b64: unknown) => (typeof b64 === 'string' && b64.length > 0 ? Buffer.from(b64.replace(/^data:[^,]+,/, ''), 'base64') : null);
 
-export function buildApp({ db, providers, managerKey, logger = false }: AppOptions): { app: FastifyInstance; deals: DealService } {
+export function buildApp({ db, providers, logger = false }: AppOptions): { app: FastifyInstance; deals: DealService; auth: AuthService } {
   const app = Fastify({ logger, bodyLimit: 20 * 1024 * 1024 });
   const deals = new DealService(db, providers);
+  const auth = new AuthService(db);
 
   // The mobile app and the web build call the API from other origins.
   app.addHook('onRequest', async (req, reply) => {
@@ -31,12 +34,24 @@ export function buildApp({ db, providers, managerKey, logger = false }: AppOptio
 
   app.get('/api/health', async () => ({ ok: true, testMode: TEST_MODE }));
 
-  // ----- manager: requires the manager key -----
+  // ----- manager login -----
+  app.post('/api/auth/login', async (req) => {
+    const b = (req.body ?? {}) as { email?: string; password?: string };
+    return auth.login(b.email ?? '', b.password ?? '');
+  });
+  app.post('/api/auth/logout', async (req) => {
+    auth.logout(req.headers.authorization);
+    return { ok: true };
+  });
+
+  // ----- manager: requires a signed-in manager -----
   app.register(async (m) => {
+    m.decorateRequest('manager', null as unknown as Manager);
     m.addHook('onRequest', async (req) => {
       if (req.method === 'OPTIONS') return;
-      if (req.headers.authorization !== `Bearer ${managerKey}`) throw new ApiError(401, 'Нужен ключ менеджера');
+      (req as unknown as { manager: Manager }).manager = auth.check(req.headers.authorization);
     });
+    m.get('/api/auth/me', async (req) => ({ manager: (req as unknown as { manager: Manager }).manager }));
     m.get('/api/deals', async () => ({ deals: deals.list() }));
     m.post('/api/deals', async (req, reply) => reply.code(201).send({ deal: deals.create(req.body as NewDeal) }));
     m.get('/api/deals/:id', async (req) => {
@@ -49,6 +64,12 @@ export function buildApp({ db, providers, managerKey, logger = false }: AppOptio
   type P = { token: string };
   const body = <T>(req: { body: unknown }) => (req.body ?? {}) as T;
   app.get('/api/client/:token', async (req) => ({ deal: deals.byToken((req.params as P).token) }));
+  app.get('/api/client/:token/contract.pdf', async (req, reply) => {
+    const deal = deals.byToken((req.params as P).token);
+    reply.header('Content-Type', 'application/pdf');
+    reply.header('Content-Disposition', `inline; filename="dogovor-${encodeURIComponent(deal.no)}.pdf"`);
+    return reply.send(await contractPdf(deal));
+  });
   app.post('/api/client/:token/start', async (req) => ({ deal: deals.start((req.params as P).token) }));
   app.post('/api/client/:token/phone/send', async (req) =>
     ({ deal: await deals.sendPhoneCode((req.params as P).token, body<{ phone: string }>(req).phone) }));
@@ -69,5 +90,5 @@ export function buildApp({ db, providers, managerKey, logger = false }: AppOptio
     return { deal: await deals.pay((req.params as P).token, b.what, b.method) };
   });
 
-  return { app, deals };
+  return { app, deals, auth };
 }

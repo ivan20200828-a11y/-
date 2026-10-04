@@ -1,7 +1,7 @@
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 
-import { clientApi, managerApi, type DealEvent } from '@/api';
+import { ApiError, clientApi, managerApi, type DealEvent } from '@/api';
 
 import type { Deal, Stage } from './types';
 
@@ -75,12 +75,21 @@ export function useClientDeal() {
 
 // ---------- manager ----------
 
+/** Sends a signed-out manager to the login screen; returns the error text otherwise. */
+function managerError(e: unknown) {
+  if (e instanceof ApiError && e.status === 401) {
+    router.replace('/manager/login');
+    return '';
+  }
+  return (e as Error).message;
+}
+
 export function useDealList() {
   const [deals, setDeals] = useState<Deal[] | null>(null);
   const [error, setError] = useState('');
   useFocusEffect(
     useCallback(() => {
-      managerApi.list().then((d) => { setDeals(d); setError(''); }, (e: Error) => setError(e.message));
+      managerApi.list().then((d) => { setDeals(d); setError(''); }, (e) => setError(managerError(e)));
     }, []),
   );
   return { deals, error };
@@ -91,7 +100,7 @@ export function useDealDetails(id: string) {
   const [error, setError] = useState('');
   useFocusEffect(
     useCallback(() => {
-      managerApi.get(id).then((d) => { setData(d); setError(''); }, (e: Error) => setError(e.message));
+      managerApi.get(id).then((d) => { setData(d); setError(''); }, (e) => setError(managerError(e)));
     }, [id]),
   );
   return { ...data, error };

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { parseAmount, rub } from '@/lib/money';
-import { managerApi } from '@/api';
+import { ApiError, managerApi } from '@/api';
 import { Button, Card, ErrorText, Field, H2, Hint, Row, Screen } from '@/ui/kit';
 import { useColors } from '@/ui/theme';
 
@@ -31,6 +31,7 @@ export default function NewDeal() {
       const deal = await managerApi.create({ clientName: clientName.trim(), phone, subject: subject.trim(), total: sum, downPct: pct, term });
       router.replace(`/manager/${deal.id}`);
     } catch (e) {
+      if (e instanceof ApiError && e.status === 401) return router.replace('/manager/login');
       setError((e as Error).message);
       setBusy(false);
     }

@@ -1,5 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { View } from 'react-native';
+import { Linking, View } from 'react-native';
+
+import { contractPdfUrl } from '@/api';
 
 import { formatDate, rub } from '@/lib/money';
 import { dealProgress } from '@/lib/schedule';
@@ -65,6 +67,7 @@ export default function DealDetails() {
       <Card>
         <H2>Договор</H2>
         {!deal.passport && <Hint>Паспортные данные появятся после верификации клиента.</Hint>}
+        <Button ghost title="Скачать договор в PDF" onPress={() => Linking.openURL(contractPdfUrl(deal.token))} />
         <ContractText deal={deal} />
       </Card>
     </Screen>

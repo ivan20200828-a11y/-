@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { Linking } from 'react-native';
 
+import { contractPdfUrl } from '@/api';
 import { formatDate, rub } from '@/lib/money';
 import { dealProgress } from '@/lib/schedule';
 import { withClientDeal } from '@/state/client-gate';
@@ -51,6 +53,7 @@ export default withClientDeal(function Cabinet({ deal }) {
         {tab === 'contract' && (
           <>
             {deal.signature && <Stamp>Подписано ПЭП {formatDate(deal.signature.at)} · {deal.signature.id}</Stamp>}
+            <Button ghost title="Скачать договор в PDF" onPress={() => Linking.openURL(contractPdfUrl(deal.token))} />
             <ContractText deal={deal} />
           </>
         )}
