@@ -1,18 +1,27 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { useColorScheme } from 'react-native';
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+import { DealsProvider } from '@/state/deals';
 
-SplashScreen.preventAutoHideAsync();
-
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+export default function RootLayout() {
+  const scheme = useColorScheme();
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
+    <ThemeProvider value={scheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <DealsProvider>
+        <Stack screenOptions={{ headerBackTitle: 'Назад' }}>
+          <Stack.Screen name="index" options={{ title: 'Сделка онлайн' }} />
+          <Stack.Screen name="client/index" options={{ title: 'Ваша сделка' }} />
+          <Stack.Screen name="client/phone" options={{ title: 'Телефон' }} />
+          <Stack.Screen name="client/documents" options={{ title: 'Документы' }} />
+          <Stack.Screen name="client/contract" options={{ title: 'Договор' }} />
+          <Stack.Screen name="client/sign" options={{ title: 'Подписание' }} />
+          <Stack.Screen name="client/pay" options={{ title: 'Оплата взноса' }} />
+          <Stack.Screen name="client/cabinet" options={{ title: 'Личный кабинет', headerBackVisible: false, headerLeft: () => null }} />
+          <Stack.Screen name="manager/index" options={{ title: 'Сделки' }} />
+          <Stack.Screen name="manager/new" options={{ title: 'Новая сделка' }} />
+          <Stack.Screen name="manager/[id]" options={{ title: 'Сделка' }} />
+        </Stack>
+      </DealsProvider>
     </ThemeProvider>
   );
 }
