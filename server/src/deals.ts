@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
 import type { DB } from './db.ts';
-import type { Providers } from './providers.ts';
+import type { PaymentStatus, Providers } from './providers.ts';
 import type { Deal, DealEvent, Passport, PayMethod, Stage } from './types.ts';
 
 export class ApiError extends Error {
@@ -34,9 +34,12 @@ export type NewDeal = { clientName: string; phone: string; subject: string; tota
 export class DealService {
   db: DB;
   providers: Providers;
-  constructor(db: DB, providers: Providers) {
+  /** Public address of the web app; the bank sends the client back there after paying. */
+  appUrl?: string;
+  constructor(db: DB, providers: Providers, opts: { appUrl?: string } = {}) {
     this.db = db;
     this.providers = providers;
+    this.appUrl = opts.appUrl?.replace(/\/$/, '');
   }
 
   // ---------- reading ----------
@@ -211,28 +214,115 @@ export class DealService {
     return this.byId(d.id);
   }
 
-  async pay(token: string, what: 'down' | 'next', method: PayMethod) {
+  /** Starts a payment. The test acquirer confirms at once; a real one returns a link to the bank page or SBP
+   * and confirms later through the webhook or a status check. */
+  async pay(token: string, what: 'down' | 'next', method: PayMethod): Promise<{ deal: Deal; payment: PaymentView }> {
     const d = this.byToken(token);
     if (method !== 'sbp' && method !== 'card') throw new ApiError(400, 'Выберите способ оплаты');
-    let amount: number;
-    let n: number | null = null;
+    const { amount, n } = this.duePayment(d, what);
+    const order = {
+      id: randomUUID(), deal_id: d.id, kind: what === 'down' ? 'down' : 'installment', n, amount, method,
+      provider: this.providers.payments.name, provider_id: null, status: 'pending', url: null, created_at: new Date().toISOString(),
+    };
+    this.db.prepare(`INSERT INTO payment_orders (${Object.keys(order).join(', ')}) VALUES (${Object.keys(order).map(() => '?').join(', ')})`)
+      .run(...Object.values(order));
+    let started;
+    try {
+      started = await this.providers.payments.create({
+        orderId: order.id, amount, method,
+        description: `Сделка ${d.no}${n ? `, платёж ${n}` : ', первоначальный взнос'}`,
+        returnUrl: this.appUrl ? `${this.appUrl}/client/cabinet?t=${encodeURIComponent(d.token)}` : undefined,
+      });
+    } catch (e) {
+      this.db.prepare(`UPDATE payment_orders SET status = 'failed' WHERE id = ?`).run(order.id);
+      this.log(d.id, 'payment_error', { orderId: order.id, error: String(e) });
+      throw new ApiError(502, 'Банк не ответил. Попробуйте оплатить ещё раз через минуту.');
+    }
+    this.db.prepare('UPDATE payment_orders SET provider_id = ?, url = ? WHERE id = ?').run(started.providerId, started.url ?? null, order.id);
+    this.log(d.id, 'payment_started', { orderId: order.id, kind: what, n, amount, method });
+    this.applyStatus(order.id, started.status);
+    return this.paymentView(d.token, order.id);
+  }
+
+  /** Current state of a payment; asks the acquirer directly while it is still pending. */
+  async paymentStatus(token: string, orderId: string) {
+    const o = this.order(orderId);
+    if (!o || o.deal_id !== this.byToken(token).id) throw new ApiError(404, 'Платёж не найден');
+    if (o.status === 'pending' && o.provider_id) {
+      try {
+        this.applyStatus(o.id as string, await this.providers.payments.check(o.provider_id as string));
+      } catch {
+        // The webhook will still deliver the result.
+      }
+    }
+    return this.paymentView(token, orderId);
+  }
+
+  /** Webhook from the acquirer. Returns false when the signature is wrong. */
+  handleNotification(body: unknown): boolean {
+    const n = this.providers.payments.parseNotification(body);
+    if (!n) return false;
+    const o = this.order(n.orderId);
+    if (!o) return true; // not ours or already removed: acknowledge so the bank stops retrying
+    if (n.status === 'paid' && n.amount !== o.amount) {
+      this.log(o.deal_id as string, 'payment_amount_mismatch', { orderId: o.id, expected: o.amount, got: n.amount });
+      return true;
+    }
+    this.applyStatus(o.id as string, n.status);
+    return true;
+  }
+
+  private order(id: string) {
+    return this.db.prepare('SELECT * FROM payment_orders WHERE id = ?').get(id) as Row | undefined;
+  }
+
+  private paymentView(token: string, orderId: string) {
+    const o = this.order(orderId)!;
+    return { deal: this.byToken(token), payment: { id: o.id as string, status: o.status as PaymentStatus, url: (o.url as string | null) ?? undefined } };
+  }
+
+  private duePayment(d: Deal, what: 'down' | 'next') {
     if (what === 'down') {
       this.requireStage(d, 'pay');
-      amount = downAmount(d);
-    } else {
-      this.requireStage(d, 'active');
-      const amounts = installmentAmounts(d);
-      n = d.installmentsPaid.length + 1;
-      if (n > d.term) throw new ApiError(409, 'Рассрочка уже полностью оплачена');
-      amount = amounts[n - 1];
+      return { amount: downAmount(d), n: null };
     }
-    const res = await this.providers.payments.charge(amount, method, `Сделка ${d.no}${n ? `, платёж ${n}` : ', первоначальный взнос'}`);
-    if (!res.ok) throw new ApiError(402, 'Платёж не прошёл. Попробуйте ещё раз или выберите другой способ.');
-    const at = new Date().toISOString();
-    this.db.prepare('INSERT INTO payments (id, deal_id, kind, n, amount, method, at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-      res.id, d.id, what === 'down' ? 'down' : 'installment', n, amount, method, at);
-    if (what === 'down') this.set(d.id, { down_payment: JSON.stringify({ at, method }), stage: 'active' });
-    this.log(d.id, 'paid', { paymentId: res.id, kind: what, n, amount, method });
-    return this.byId(d.id);
+    this.requireStage(d, 'active');
+    const n = d.installmentsPaid.length + 1;
+    if (n > d.term) throw new ApiError(409, 'Рассрочка уже полностью оплачена');
+    return { amount: installmentAmounts(d)[n - 1], n };
+  }
+
+  /** Moves a pending order to its final state once; a payment for something already paid is logged for a refund. */
+  private applyStatus(orderId: string, status: PaymentStatus) {
+    if (status === 'pending') return;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const o = this.order(orderId);
+      if (!o || o.status !== 'pending') return this.db.exec('COMMIT');
+      this.db.prepare('UPDATE payment_orders SET status = ? WHERE id = ?').run(status, orderId);
+      const dealId = o.deal_id as string;
+      if (status === 'failed') {
+        this.log(dealId, 'payment_failed', { orderId });
+        return this.db.exec('COMMIT');
+      }
+      const d = this.byId(dealId);
+      const kind = o.kind as 'down' | 'installment';
+      const stillDue = kind === 'down' ? d.stage === 'pay' : d.stage === 'active' && d.installmentsPaid.length + 1 === o.n;
+      if (!stillDue) {
+        this.log(dealId, 'payment_duplicate', { orderId, amount: o.amount, kind, n: o.n });
+        return this.db.exec('COMMIT');
+      }
+      const at = new Date().toISOString();
+      this.db.prepare('INSERT INTO payments (id, deal_id, kind, n, amount, method, at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+        orderId, dealId, kind, o.n, o.amount, o.method, at);
+      if (kind === 'down') this.set(dealId, { down_payment: JSON.stringify({ at, method: o.method }), stage: 'active' });
+      this.log(dealId, 'paid', { paymentId: orderId, kind: kind === 'down' ? 'down' : 'next', n: o.n, amount: o.amount, method: o.method });
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
   }
 }
+
+export type PaymentView = { id: string; status: PaymentStatus; url?: string };

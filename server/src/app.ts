@@ -7,13 +7,13 @@ import { ApiError, DealService, type NewDeal } from './deals.ts';
 import { TEST_MODE, type Providers } from './providers.ts';
 import type { Passport, PayMethod } from './types.ts';
 
-export type AppOptions = { db: DB; providers: Providers; logger?: boolean };
+export type AppOptions = { db: DB; providers: Providers; logger?: boolean; appUrl?: string };
 
 const image = (b64: unknown) => (typeof b64 === 'string' && b64.length > 0 ? Buffer.from(b64.replace(/^data:[^,]+,/, ''), 'base64') : null);
 
-export function buildApp({ db, providers, logger = false }: AppOptions): { app: FastifyInstance; deals: DealService; auth: AuthService } {
+export function buildApp({ db, providers, logger = false, appUrl }: AppOptions): { app: FastifyInstance; deals: DealService; auth: AuthService } {
   const app = Fastify({ logger, bodyLimit: 20 * 1024 * 1024 });
-  const deals = new DealService(db, providers);
+  const deals = new DealService(db, providers, { appUrl });
   const auth = new AuthService(db);
 
   // The mobile app and the web build call the API from other origins.
@@ -32,7 +32,7 @@ export function buildApp({ db, providers, logger = false }: AppOptions): { app: 
     return reply.code(500).send({ error: 'Что-то пошло не так на сервере. Попробуйте ещё раз.' });
   });
 
-  app.get('/api/health', async () => ({ ok: true, testMode: TEST_MODE }));
+  app.get('/api/health', async () => ({ ok: true, testMode: TEST_MODE, payments: providers.payments.name }));
 
   // ----- manager login -----
   app.post('/api/auth/login', async (req) => {
@@ -87,7 +87,17 @@ export function buildApp({ db, providers, logger = false }: AppOptions): { app: 
     ({ deal: deals.verifySign((req.params as P).token, body<{ code: string }>(req).code) }));
   app.post('/api/client/:token/pay', async (req) => {
     const b = body<{ what: 'down' | 'next'; method: PayMethod }>(req);
-    return { deal: await deals.pay((req.params as P).token, b.what, b.method) };
+    return deals.pay((req.params as P).token, b.what, b.method);
+  });
+  app.get('/api/client/:token/payments/:id', async (req) => {
+    const p = req.params as P & { id: string };
+    return deals.paymentStatus(p.token, p.id);
+  });
+
+  // ----- acquirer webhook -----
+  app.post('/api/payments/notify', async (req, reply) => {
+    if (!deals.handleNotification(req.body)) return reply.code(403).send({ error: 'Неверная подпись' });
+    return reply.type('text/plain').send(providers.payments.notificationAck);
   });
 
   return { app, deals, auth };

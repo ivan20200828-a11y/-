@@ -1,14 +1,14 @@
 import { openDb } from './db.ts';
 import { buildApp } from './app.ts';
-import { TEST_MODE, testProviders } from './providers.ts';
+import { TEST_MODE, providersFromEnv } from './providers.ts';
 import { advanceDemo, seedDemo } from './seed.ts';
 
 const port = Number(process.env.PORT ?? 3000);
 const db = openDb(process.env.DB_FILE ?? 'sdelka.db');
 
-if (!TEST_MODE) throw new Error('Реальные провайдеры ещё не подключены: запускайте с PROVIDERS_MODE=test');
+if (!TEST_MODE) throw new Error('Реальные SMS и проверка паспорта ещё не подключены: запускайте с PROVIDERS_MODE=test');
 
-const { app, deals, auth } = buildApp({ db, providers: testProviders, logger: true });
+const { app, deals, auth } = buildApp({ db, providers: providersFromEnv(), logger: true, appUrl: process.env.APP_URL });
 
 // First start: create the first manager account from the environment, or a demo one.
 if (!auth.hasManagers()) {

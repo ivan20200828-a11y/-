@@ -5,28 +5,18 @@ import { contractPdfUrl } from '@/api';
 import { formatDate, rub } from '@/lib/money';
 import { dealProgress } from '@/lib/schedule';
 import { withClientDeal } from '@/state/client-gate';
-import { useClient } from '@/state/deals';
+import { usePayment } from '@/state/payment';
 import { downAmount } from '@/state/types';
 import { ContractText, ScheduleTable } from '@/ui/contract';
+import { PaymentWaiting } from '@/ui/payment';
 import { Big, Button, Card, ErrorText, H1, H2, KV, Label, Progress, Screen, Stamp, Tabs, Txt } from '@/ui/kit';
 
 type Tab = 'sched' | 'contract' | 'hist';
 
 export default withClientDeal(function Cabinet({ deal }) {
-  const { step } = useClient();
   const [tab, setTab] = useState<Tab>('sched');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   const { rows, sum, next } = dealProgress(deal);
-
-  const payNext = async () => {
-    if (!next) return;
-    setBusy(true);
-    const err = await step('pay', { what: 'next', method: 'sbp' });
-    setBusy(false);
-    if (err) return setError(err);
-    setTab('hist');
-  };
+  const payment = usePayment(() => setTab('hist'));
 
   return (
     <Screen>
@@ -41,8 +31,12 @@ export default withClientDeal(function Cabinet({ deal }) {
           <Label>Следующий платёж</Label>
           <Big>{rub(next.amount)}</Big>
           <Txt>до {formatDate(next.date)} · платёж {next.n} из {deal.term}</Txt>
-          <Button title="Оплатить через СБП" onPress={payNext} loading={busy} />
-          {!!error && <ErrorText>{error}</ErrorText>}
+          {payment.waiting ? (
+            <PaymentWaiting onReopen={payment.reopen} onCancel={payment.cancel} />
+          ) : (
+            <Button title="Оплатить через СБП" onPress={() => payment.start('next', 'sbp')} loading={payment.busy} />
+          )}
+          {!!payment.error && <ErrorText>{payment.error}</ErrorText>}
         </Card>
       ) : (
         <Card><H2>Рассрочка полностью погашена</H2></Card>

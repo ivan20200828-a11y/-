@@ -79,6 +79,8 @@ export const managerApi = {
     hydrate((await call<{ deal: WireDeal }>('/api/deals', { body: d, manager: true })).deal),
 };
 
+export type Payment = { id: string; status: 'pending' | 'paid' | 'failed'; url?: string };
+
 export const contractPdfUrl = (token: string) => `${API_URL}/api/client/${encodeURIComponent(token)}/contract.pdf`;
 
 export const clientApi = {
@@ -86,6 +88,15 @@ export const clientApi = {
   /** Runs one step of the deal on the server and returns the updated deal. */
   step: async (token: string, step: string, body: object = {}) =>
     hydrate((await call<{ deal: WireDeal }>(`/api/client/${token}/${step}`, { body })).deal),
+  /** Starts a payment: the test server confirms at once, a real acquirer returns a link to the bank page or SBP. */
+  pay: async (token: string, what: 'down' | 'next', method: PayMethod) => {
+    const r = await call<{ deal: WireDeal; payment: Payment }>(`/api/client/${token}/pay`, { body: { what, method } });
+    return { deal: hydrate(r.deal), payment: r.payment };
+  },
+  payment: async (token: string, id: string) => {
+    const r = await call<{ deal: WireDeal; payment: Payment }>(`/api/client/${token}/payments/${encodeURIComponent(id)}`);
+    return { deal: hydrate(r.deal), payment: r.payment };
+  },
   kyc: async (token: string, images: { passportImage?: string; selfieImage?: string }) => {
     const r = await call<{ deal: WireDeal; passport: Passport; faceMatch: number }>(`/api/client/${token}/kyc`, { body: images });
     return { deal: hydrate(r.deal), passport: r.passport, faceMatch: r.faceMatch };

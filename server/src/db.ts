@@ -35,6 +35,19 @@ export function openDb(file: string): DB {
       method TEXT NOT NULL,
       at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS payment_orders (
+      id TEXT PRIMARY KEY,         -- our order id, sent to the acquirer
+      deal_id TEXT NOT NULL REFERENCES deals(id),
+      kind TEXT NOT NULL,          -- 'down' | 'installment'
+      n INTEGER,
+      amount INTEGER NOT NULL,
+      method TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      provider_id TEXT,
+      status TEXT NOT NULL,        -- 'pending' | 'paid' | 'failed'
+      url TEXT,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS codes (
       deal_id TEXT NOT NULL REFERENCES deals(id),
       purpose TEXT NOT NULL,       -- 'phone' | 'sign'

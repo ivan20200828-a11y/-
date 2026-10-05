@@ -21,6 +21,11 @@ const EVENT_LABEL: Record<string, string> = {
   sign_code_sent: 'Отправлен код подписи',
   signed: 'Договор подписан',
   paid: 'Получен платёж',
+  payment_started: 'Клиент начал оплату',
+  payment_failed: 'Платёж не прошёл',
+  payment_error: 'Банк не ответил на запрос оплаты',
+  payment_duplicate: 'Лишний платёж, нужен возврат',
+  payment_amount_mismatch: 'Сумма от банка не совпала',
 };
 
 const time = (d: Date) => `${formatDate(d)} ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
@@ -56,7 +61,7 @@ export default function DealDetails() {
           <View key={i} style={{ gap: 2 }}>
             <Hint>{time(e.at)}</Hint>
             <Txt>{EVENT_LABEL[e.type] ?? e.type}
-              {e.type === 'paid' && typeof e.data === 'object' && e.data && 'amount' in e.data ? `: ${rub(Number((e.data as { amount: number }).amount))}` : ''}</Txt>
+              {(e.type === 'paid' || e.type === 'payment_duplicate') && typeof e.data === 'object' && e.data && 'amount' in e.data ? `: ${rub(Number((e.data as { amount: number }).amount))}` : ''}</Txt>
           </View>
         ))}
       </Card>

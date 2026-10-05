@@ -5,6 +5,7 @@
  */
 import { randomUUID } from 'node:crypto';
 
+import { tkassa, tkassaConfigFromEnv } from './payments/tkassa.ts';
 import type { PayMethod, Passport } from './types.ts';
 
 export const TEST_MODE = process.env.PROVIDERS_MODE !== 'live';
@@ -15,7 +16,24 @@ export type Providers = {
     recognizePassport(image: Buffer | null): Promise<Passport>;
     matchFace(passport: Buffer | null, selfie: Buffer | null): Promise<number>;
   };
-  payments: { charge(amount: number, method: PayMethod, description: string): Promise<{ id: string; ok: boolean }> };
+  payments: PaymentProvider;
+};
+
+export type PaymentStatus = 'pending' | 'paid' | 'failed';
+
+/** What the deal asks the acquirer to collect. Amounts are whole rubles. */
+export type PaymentOrder = { orderId: string; amount: number; method: PayMethod; description: string; returnUrl?: string };
+
+/** An acquirer. Payments are confirmed asynchronously: the client pays on the bank's page or in the bank app
+ * (SBP), then the acquirer calls our webhook. `check` asks for the status directly in case the webhook is late. */
+export type PaymentProvider = {
+  name: string;
+  create(order: PaymentOrder): Promise<{ providerId: string; status: PaymentStatus; url?: string }>;
+  check(providerId: string): Promise<PaymentStatus>;
+  /** Verifies a webhook call; null when the signature does not match. */
+  parseNotification(body: unknown): { orderId: string; providerId: string; status: PaymentStatus; amount: number } | null;
+  /** Body the acquirer expects back from the webhook. */
+  notificationAck: string;
 };
 
 export const testProviders: Providers = {
@@ -41,8 +59,20 @@ export const testProviders: Providers = {
     },
   },
   payments: {
-    async charge() {
-      return { id: `test-${randomUUID()}`, ok: true };
+    name: 'test',
+    async create() {
+      return { providerId: `test-${randomUUID()}`, status: 'paid' };
     },
+    async check() {
+      return 'paid';
+    },
+    parseNotification: () => null,
+    notificationAck: 'OK',
   },
 };
+
+/** Test SMS and KYC; payments go through Т-Касса when PAYMENTS_PROVIDER=tkassa. */
+export function providersFromEnv(env = process.env): Providers {
+  if (env.PAYMENTS_PROVIDER === 'tkassa') return { ...testProviders, payments: tkassa(tkassaConfigFromEnv(env)) };
+  return testProviders;
+}

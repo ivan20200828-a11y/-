@@ -88,7 +88,7 @@ test('a deal goes from invitation to the first installment', async () => {
   const details = (await app.inject({ method: 'GET', url: `/api/deals/${id}`, headers: auth })).json();
   assert.deepEqual(
     details.events.map((e: { type: string }) => e.type),
-    ['created', 'started', 'phone_code_sent', 'phone_verified', 'kyc_checked', 'passport_confirmed', 'contract_accepted', 'sign_code_sent', 'signed', 'paid', 'paid'],
+    ['created', 'started', 'phone_code_sent', 'phone_verified', 'kyc_checked', 'passport_confirmed', 'contract_accepted', 'sign_code_sent', 'signed', 'payment_started', 'paid', 'payment_started', 'paid'],
   );
 });
 

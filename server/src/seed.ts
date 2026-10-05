@@ -1,4 +1,5 @@
-import type { DealService } from './deals.ts';
+import { DealService } from './deals.ts';
+import { testProviders } from './providers.ts';
 
 const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString();
 
@@ -16,7 +17,9 @@ export function seedDemo(svc: DealService) {
 }
 
 /** Walks a demo deal through every stage with test codes so the manager list shows deals at different stages. */
-export async function advanceDemo(svc: DealService) {
+export async function advanceDemo(live: DealService) {
+  // Demo payments never go to a real acquirer.
+  const svc = new DealService(live.db, testProviders);
   const walk = async (token: string, upTo: 'documents' | 'sign' | 'active', payments = 0) => {
     if (svc.byToken(token).stage !== 'invited') return;
     svc.start(token);
