@@ -3,7 +3,8 @@
  * the bank posts status changes to NotificationURL. Every request and notification is signed with Token:
  * SHA-256 of the root-level scalar values sorted by key, with the terminal password added as "Password".
  *
- * Written from the public API description; check against the bank's sandbox terminal before going live.
+ * Matches the API as used by public SDKs (signature rules, GetQr PAYLOAD, "OK" reply to notifications);
+ * still to be run against a test terminal of the bank before going live.
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
 
