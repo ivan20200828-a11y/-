@@ -3,8 +3,10 @@ import { useState } from 'react';
 import { Image, Platform, View } from 'react-native';
 
 import { managerApi } from '@/api';
-import type { Deal } from '@/state/types';
-import { Button, ErrorText, Field, H2, Hint, Row, Txt } from '@/ui/kit';
+import { rub } from '@/lib/money';
+import { dealProgress } from '@/lib/schedule';
+import { downAmount, type Deal, type PaidBy, type PayWhat } from '@/state/types';
+import { Button, Card, ErrorText, Field, H2, Hint, Row, Tabs, Txt } from '@/ui/kit';
 
 /** The client's link to the deal, with copy and resend. */
 export function InviteCard({ deal, inviteUrl }: { deal: Deal; inviteUrl: string | null }) {
@@ -116,5 +118,54 @@ export function CancelDeal({ deal, onDone }: { deal: Deal; onDone: () => void })
       </Row>
       {!!error && <ErrorText>{error}</ErrorText>}
     </View>
+  );
+}
+
+/** Marks a payment that came outside the app: a bank transfer by the company's requisites or cash at the office. */
+export function RecordPayment({ deal, onDone }: { deal: Deal; onDone: () => void }) {
+  const { rows, next } = dealProgress(deal);
+  const [asking, setAsking] = useState(false);
+  const [what, setWhat] = useState<PayWhat>(deal.stage === 'pay' ? 'down' : 'next');
+  const [method, setMethod] = useState<PaidBy>('transfer');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (deal.stage !== 'pay' && !(deal.stage === 'active' && next)) return null;
+
+  const rest = next ? rows.filter((r) => r.n >= next.n).reduce((a, r) => a + r.amount, 0) : 0;
+  const choices: [PayWhat, string][] = deal.stage === 'pay'
+    ? [['down', 'Взнос']]
+    : rest > (next?.amount ?? 0) ? [['next', `Платёж ${next!.n}`], ['rest', 'Весь остаток']] : [['next', `Платёж ${next!.n}`]];
+  const amount = what === 'down' ? downAmount(deal) : what === 'rest' ? rest : next?.amount ?? 0;
+
+  const confirm = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await managerApi.recordPayment(deal.id, { what, method, note });
+      setAsking(false);
+      setNote('');
+      onDone();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!asking) return <Card><Button ghost title="Отметить оплату вне приложения" onPress={() => setAsking(true)} /></Card>;
+  return (
+    <Card>
+      <H2>Оплата вне приложения</H2>
+      <Hint>Отметьте, когда деньги пришли на счёт или приняты в кассу. Клиент сразу увидит платёж в кабинете.</Hint>
+      <Tabs items={choices} value={what} onChange={setWhat} />
+      <Tabs items={[['transfer', 'Перевод по реквизитам'], ['cash', 'Наличные']]} value={method} onChange={setMethod} />
+      <Txt style={{ fontWeight: '600' }}>Сумма: {rub(amount)}</Txt>
+      <Field label="Комментарий" value={note} onChangeText={setNote} placeholder={method === 'cash' ? 'Например, ПКО № 15' : 'Например, платёжное поручение № 42'} />
+      <Row>
+        <Button title={`Отметить ${rub(amount)}`} onPress={confirm} loading={busy} />
+        <Button ghost title="Отмена" onPress={() => setAsking(false)} />
+      </Row>
+      {!!error && <ErrorText>{error}</ErrorText>}
+    </Card>
   );
 }

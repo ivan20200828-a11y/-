@@ -46,13 +46,14 @@ export class ExportService {
     if (!until || until < Date.now()) throw new ApiError(401, 'Ссылка на выгрузку устарела. Нажмите «Выгрузить» ещё раз.');
   }
 
+  /** One row per payment; an early repayment shows as several installments with the same operation number. */
   payments() {
     const rows = this.db.prepare(`SELECT p.*, d.no, d.client_name, d.phone FROM payments p JOIN deals d ON d.id = p.deal_id ORDER BY p.at`).all() as
       { id: string; kind: string; n: number | null; amount: number; method: string; at: string; no: string; client_name: string; phone: string }[];
     return toCsv([
       ['Дата', 'Договор', 'Клиент', 'Телефон', 'Платёж', 'Сумма, ₽', 'Способ', 'Номер операции'],
       ...rows.map((r) => [day(r.at), r.no, r.client_name, r.phone, r.kind === 'down' ? 'Первоначальный взнос' : `Платёж ${r.n}`,
-        r.amount, r.method === 'sbp' ? 'СБП' : 'Карта', r.id]),
+        r.amount, METHOD[r.method] ?? r.method, r.id.split(':')[0]]),
     ]);
   }
 
@@ -76,3 +77,5 @@ export class ExportService {
     ]);
   }
 }
+
+const METHOD: Record<string, string> = { sbp: 'СБП', card: 'Карта', transfer: 'Перевод по реквизитам', cash: 'Наличные' };

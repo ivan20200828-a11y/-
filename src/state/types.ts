@@ -10,6 +10,11 @@ export type Passport = {
 export type Stage = 'invited' | 'phone' | 'documents' | 'contract' | 'sign' | 'pay' | 'active' | 'cancelled';
 
 export type PayMethod = 'sbp' | 'card';
+/** How a payment arrived: through the acquirer, or outside the app and marked by a manager. */
+export type PaidBy = PayMethod | 'transfer' | 'cash';
+/** What is being paid: the down payment, the next installment, or everything left (early repayment). */
+export type PayWhat = 'down' | 'next' | 'rest';
+export const PAID_BY_LABEL: Record<PaidBy, string> = { sbp: 'СБП', card: 'карта', transfer: 'перевод', cash: 'наличные' };
 
 /** The seller's company details printed in contracts. */
 export type Company = {
@@ -34,9 +39,9 @@ export type Deal = {
   passport?: Passport;
   faceMatch?: number;
   signature?: { id: string; at: Date };
-  downPayment?: { at: Date; method: PayMethod };
+  downPayment?: { at: Date; method: PaidBy };
   esignAgreement?: { edition: number; at: Date };
-  installmentsPaid: { n: number; at: Date }[];
+  installmentsPaid: { n: number; at: Date; method: PaidBy }[];
   sellerDetails?: Company;
 };
 

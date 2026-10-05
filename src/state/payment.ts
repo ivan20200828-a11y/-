@@ -3,7 +3,7 @@ import { Linking } from 'react-native';
 
 import { clientApi, type Payment } from '@/api';
 import { useClient } from '@/state/deals';
-import type { PayMethod } from '@/state/types';
+import type { PayMethod, PayWhat } from '@/state/types';
 
 const POLL_MS = 3000;
 
@@ -45,7 +45,7 @@ export function usePayment(onPaid: () => void) {
 
   const open = (p: Payment) => p.url && Linking.openURL(p.url).catch(() => {});
 
-  const start = async (what: 'down' | 'next', method: PayMethod) => {
+  const start = async (what: PayWhat, method: PayMethod) => {
     setBusy(true);
     setError('');
     try {

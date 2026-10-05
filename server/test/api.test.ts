@@ -206,3 +206,60 @@ test('deals and payments download as Excel-friendly CSV with a one-time key', as
   const key2 = (await app.inject({ method: 'POST', url: '/api/export/key', headers: auth })).json().key;
   assert.match((await app.inject({ url: `/api/export/payments.csv?key=${key2}` })).body, /^﻿Дата;Договор/);
 });
+
+/** A new deal taken by the client up to the down payment. */
+async function signedDeal(app: Awaited<ReturnType<typeof setup>>) {
+  const { token, id } = (await app.inject({ method: 'POST', url: '/api/deals', headers: auth, payload: newDeal })).json().deal;
+  const c = `/api/client/${token}`;
+  const post = (url: string, payload: object = {}) => app.inject({ method: 'POST', url: `${c}${url}`, payload });
+  await post('/start');
+  await post('/phone/send', { phone: newDeal.phone });
+  await post('/phone/verify', { code: '1234' });
+  const kyc = (await post('/kyc', { passportImage: Buffer.from('fake').toString('base64') })).json();
+  await post('/passport', { passport: kyc.passport });
+  await post('/contract/accept', { esignEdition: 1 });
+  await post('/sign/send');
+  await post('/sign/verify', { code: '1234' });
+  return { id, token, c };
+}
+
+test('a manager marks payments received by transfer or in cash', async () => {
+  const app = await setup();
+  const { id } = await signedDeal(app);
+  const mark = (payload: object, headers: object = auth) =>
+    app.inject({ method: 'POST', url: `/api/deals/${id}/payments`, headers: headers as Record<string, string>, payload });
+
+  assert.equal((await mark({ what: 'down', method: 'transfer' }, {})).statusCode, 401);
+  assert.equal((await mark({ what: 'next', method: 'transfer' })).statusCode, 409, 'the down payment comes first');
+  assert.equal((await mark({ what: 'down', method: 'sbp' })).statusCode, 400, 'acquirer methods are not marked by hand');
+  const down = await mark({ what: 'down', method: 'transfer', note: 'п/п № 42' });
+  assert.equal(down.json().deal.stage, 'active');
+  assert.equal(down.json().deal.downPayment.method, 'transfer');
+  const next = await mark({ what: 'next', method: 'cash' });
+  assert.deepEqual(next.json().deal.installmentsPaid.map((p: { n: number; method: string }) => [p.n, p.method]), [[1, 'cash']]);
+
+  const events = (await app.inject({ url: `/api/deals/${id}`, headers: auth })).json().events.filter((e: { type: string }) => e.type === 'paid');
+  assert.deepEqual(events[0].data.by, 'Тест');
+  assert.equal(events[0].data.note, 'п/п № 42');
+
+  const key = (await app.inject({ method: 'POST', url: '/api/export/key', headers: auth })).json().key;
+  const csv = (await app.inject({ url: `/api/export/payments.csv?key=${key}` })).body;
+  assert.match(csv, /Перевод по реквизитам/);
+  assert.match(csv, /Наличные/);
+});
+
+test('the client repays everything left early in one payment', async () => {
+  const app = await setup();
+  const { id, c } = await signedDeal(app);
+  await app.inject({ method: 'POST', url: `${c}/pay`, payload: { what: 'down', method: 'sbp' } });
+  await app.inject({ method: 'POST', url: `${c}/pay`, payload: { what: 'next', method: 'sbp' } });
+  const rest = await app.inject({ method: 'POST', url: `${c}/pay`, payload: { what: 'rest', method: 'sbp' } });
+  assert.equal(rest.statusCode, 200);
+  const deal = rest.json().deal;
+  assert.deepEqual(deal.installmentsPaid.map((p: { n: number }) => p.n), Array.from({ length: newDeal.term }, (_, i) => i + 1));
+  const paid = (await app.inject({ url: `/api/deals/${id}`, headers: auth })).json().events.filter((e: { type: string }) => e.type === 'paid').at(-1);
+  const amounts = installmentAmounts(newDeal);
+  assert.equal(paid.data.kind, 'rest');
+  assert.equal(paid.data.amount, amounts.slice(1).reduce((a, x) => a + x, 0));
+  assert.equal((await app.inject({ method: 'POST', url: `${c}/pay`, payload: { what: 'rest', method: 'sbp' } })).statusCode, 409, 'nothing left to pay');
+});

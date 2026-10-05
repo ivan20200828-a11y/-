@@ -10,7 +10,7 @@ import { ESIGN_AGREEMENT } from './esign.ts';
 import { ApiError, DealService, type NewDeal } from './deals.ts';
 import { TEST_MODE, type Providers } from './providers.ts';
 import { ExportService } from './export.ts';
-import type { Company, Passport, PayMethod } from './types.ts';
+import type { Company, PaidBy, Passport, PayMethod, PayWhat } from './types.ts';
 
 export type AppOptions = {
   db: DB; providers: Providers; logger?: boolean; appUrl?: string;
@@ -75,6 +75,9 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir }: AppO
     m.post('/api/deals/:id/cancel', async (req) =>
       ({ deal: deals.cancel((req.params as { id: string }).id, String((req.body as { reason?: string } | null)?.reason ?? ''), who(req).name) }));
 
+    m.post('/api/deals/:id/payments', async (req) =>
+      ({ deal: deals.recordManual((req.params as { id: string }).id, (req.body ?? {}) as { what: PayWhat; method: PaidBy; note?: string }, who(req).name) }));
+
     // ----- company details -----
     m.get('/api/company', async () => ({ company: deals.company.get(), missing: deals.company.missing() }));
     m.put('/api/company', async (req) => {
@@ -121,7 +124,7 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir }: AppO
   app.post('/api/client/:token/sign/verify', async (req) =>
     ({ deal: deals.verifySign((req.params as P).token, body<{ code: string }>(req).code) }));
   app.post('/api/client/:token/pay', async (req) => {
-    const b = body<{ what: 'down' | 'next'; method: PayMethod }>(req);
+    const b = body<{ what: PayWhat; method: PayMethod }>(req);
     return deals.pay((req.params as P).token, b.what, b.method);
   });
   app.get('/api/client/:token/payments/:id', async (req) => {

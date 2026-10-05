@@ -150,7 +150,7 @@ export function KV({ rows }: { rows: [string, ReactNode][] }) {
       {rows.map(([k, v]) => (
         <View key={k} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
           <Text style={{ color: c.muted, fontSize: 15, flexShrink: 1 }}>{k}</Text>
-          <Text style={{ color: c.fg, fontSize: 15, fontWeight: '600', textAlign: 'right', flexShrink: 1, fontVariant: ['tabular-nums'] }}>{v}</Text>
+          <Text selectable style={{ color: c.fg, fontSize: 15, fontWeight: '600', textAlign: 'right', flexShrink: 1, fontVariant: ['tabular-nums'] }}>{v}</Text>
         </View>
       ))}
     </View>

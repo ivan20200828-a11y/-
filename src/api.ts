@@ -1,5 +1,5 @@
 import { session } from '@/lib/session';
-import type { Company, Deal, Passport, PayMethod } from '@/state/types';
+import type { Company, Deal, PaidBy, Passport, PayMethod, PayWhat } from '@/state/types';
 
 /** Server address. Set EXPO_PUBLIC_API_URL when the server runs elsewhere (a phone cannot reach "localhost" on your computer). */
 export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -11,8 +11,8 @@ type WireDeal = Omit<Deal, 'createdAt' | 'signature' | 'downPayment' | 'esignAgr
   createdAt: string;
   esignAgreement?: { edition: number; at: string };
   signature?: { id: string; at: string };
-  downPayment?: { at: string; method: PayMethod };
-  installmentsPaid: { n: number; at: string }[];
+  downPayment?: { at: string; method: PaidBy };
+  installmentsPaid: { n: number; at: string; method: PaidBy }[];
 };
 
 export type DealEvent = { at: Date; type: string; data: unknown };
@@ -82,6 +82,8 @@ export const managerApi = {
   kyc: async (id: string) =>
     (await call<{ images: Partial<Record<'passport' | 'selfie', { url: string; at: string }>> }>(`/api/deals/${id}/kyc`, { manager: true })).images,
   resendInvite: async (id: string) => { await call(`/api/deals/${id}/invite`, { body: {}, manager: true }); },
+  recordPayment: async (id: string, p: { what: PayWhat; method: PaidBy; note: string }) =>
+    hydrate((await call<{ deal: WireDeal }>(`/api/deals/${id}/payments`, { body: p, manager: true })).deal),
   cancel: async (id: string, reason: string) =>
     hydrate((await call<{ deal: WireDeal }>(`/api/deals/${id}/cancel`, { body: { reason }, manager: true })).deal),
   team: async () => (await call<{ managers: Manager[] }>('/api/managers', { manager: true })).managers,
@@ -118,7 +120,7 @@ export const clientApi = {
   step: async (token: string, step: string, body: object = {}) =>
     hydrate((await call<{ deal: WireDeal }>(`/api/client/${token}/${step}`, { body })).deal),
   /** Starts a payment: the test server confirms at once, a real acquirer returns a link to the bank page or SBP. */
-  pay: async (token: string, what: 'down' | 'next', method: PayMethod) => {
+  pay: async (token: string, what: PayWhat, method: PayMethod) => {
     const r = await call<{ deal: WireDeal; payment: Payment }>(`/api/client/${token}/pay`, { body: { what, method } });
     return { deal: hydrate(r.deal), payment: r.payment };
   },

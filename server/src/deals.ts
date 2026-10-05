@@ -5,7 +5,7 @@ import type { DB } from './db.ts';
 import { ESIGN_AGREEMENT } from './esign.ts';
 import { addMonths } from './schedule.ts';
 import type { PaymentStatus, Providers } from './providers.ts';
-import type { Deal, DealEvent, Passport, PayMethod, Stage } from './types.ts';
+import type { Deal, DealEvent, PaidBy, Passport, PayMethod, PayWhat, Stage } from './types.ts';
 
 export class ApiError extends Error {
   status: number;
@@ -57,15 +57,15 @@ export class DealService {
 
   private toDeal(r: Row): Deal {
     const paid = this.db
-      .prepare(`SELECT n, at FROM payments WHERE deal_id = ? AND kind = 'installment' ORDER BY n`)
-      .all(r.id as string) as { n: number; at: string }[];
+      .prepare(`SELECT n, at, method FROM payments WHERE deal_id = ? AND kind = 'installment' ORDER BY n`)
+      .all(r.id as string) as { n: number; at: string; method: PaidBy }[];
     return {
       id: r.id as string, no: r.no as string, token: r.token as string, seller: r.seller as string, city: r.city as string,
       subject: r.subject as string, total: r.total as number, downPct: r.down_pct as number, term: r.term as number,
       clientName: r.client_name as string, phone: r.phone as string, stage: r.stage as Stage, createdAt: r.created_at as string,
       passport: json<Passport>(r.passport), faceMatch: (r.face_match as number | null) ?? undefined,
       signature: json(r.signature), downPayment: json(r.down_payment), esignAgreement: json(r.esign_agreement), sellerDetails: json(r.seller_details),
-      installmentsPaid: paid.map((p) => ({ n: p.n, at: p.at })),
+      installmentsPaid: paid.map((p) => ({ n: p.n, at: p.at, method: p.method })),
     };
   }
 
@@ -305,21 +305,16 @@ export class DealService {
 
   /** Starts a payment. The test acquirer confirms at once; a real one returns a link to the bank page or SBP
    * and confirms later through the webhook or a status check. */
-  async pay(token: string, what: 'down' | 'next', method: PayMethod): Promise<{ deal: Deal; payment: PaymentView }> {
+  async pay(token: string, what: PayWhat, method: PayMethod): Promise<{ deal: Deal; payment: PaymentView }> {
     const d = this.byToken(token);
     if (method !== 'sbp' && method !== 'card') throw new ApiError(400, 'Выберите способ оплаты');
-    const { amount, n } = this.duePayment(d, what);
-    const order = {
-      id: randomUUID(), deal_id: d.id, kind: what === 'down' ? 'down' : 'installment', n, amount, method,
-      provider: this.providers.payments.name, provider_id: null, status: 'pending', url: null, created_at: new Date().toISOString(),
-    };
-    this.db.prepare(`INSERT INTO payment_orders (${Object.keys(order).join(', ')}) VALUES (${Object.keys(order).map(() => '?').join(', ')})`)
-      .run(...Object.values(order));
+    const order = this.newOrder(d, what, method, this.providers.payments.name);
+    const { amount, n } = order;
     let started;
     try {
       started = await this.providers.payments.create({
         orderId: order.id, amount, method,
-        description: `Сделка ${d.no}${n ? `, платёж ${n}` : ', первоначальный взнос'}`,
+        description: `Сделка ${d.no}, ${paymentTitle(what, n)}`,
         returnUrl: this.appUrl ? `${this.appUrl}/client/cabinet?t=${encodeURIComponent(d.token)}` : undefined,
       });
     } catch (e) {
@@ -331,6 +326,27 @@ export class DealService {
     this.log(d.id, 'payment_started', { orderId: order.id, kind: what, n, amount, method });
     this.applyStatus(order.id, started.status);
     return this.paymentView(d.token, order.id);
+  }
+
+  /** A payment received outside the app (bank transfer by the requisites, cash at the office), marked by a manager. */
+  recordManual(id: string, b: { what: PayWhat; method: PaidBy; note?: string }, by?: string) {
+    const d = this.byId(id);
+    if (b.method !== 'transfer' && b.method !== 'cash') throw new ApiError(400, 'Укажите, как получены деньги: переводом или наличными');
+    const note = (b.note ?? '').trim().slice(0, 200);
+    const order = this.newOrder(d, b.what, b.method, 'manual');
+    this.applyStatus(order.id, 'paid', { by, note: note || undefined });
+    return this.byId(id);
+  }
+
+  private newOrder(d: Deal, what: PayWhat, method: PaidBy, provider: string) {
+    const { amount, n } = this.duePayment(d, what);
+    const order = {
+      id: randomUUID(), deal_id: d.id, kind: what === 'down' ? 'down' : what === 'rest' ? 'rest' : 'installment', n, amount, method,
+      provider, provider_id: null, status: 'pending', url: null, created_at: new Date().toISOString(),
+    };
+    this.db.prepare(`INSERT INTO payment_orders (${Object.keys(order).join(', ')}) VALUES (${Object.keys(order).map(() => '?').join(', ')})`)
+      .run(...Object.values(order));
+    return order;
   }
 
   /** Current state of a payment; asks the acquirer directly while it is still pending. */
@@ -370,19 +386,21 @@ export class DealService {
     return { deal: this.byToken(token), payment: { id: o.id as string, status: o.status as PaymentStatus, url: (o.url as string | null) ?? undefined } };
   }
 
-  private duePayment(d: Deal, what: 'down' | 'next') {
+  private duePayment(d: Deal, what: PayWhat) {
     if (what === 'down') {
       this.requireStage(d, 'pay');
       return { amount: downAmount(d), n: null };
     }
+    if (what !== 'next' && what !== 'rest') throw new ApiError(400, 'Непонятно, что оплачивается');
     this.requireStage(d, 'active');
     const n = d.installmentsPaid.length + 1;
     if (n > d.term) throw new ApiError(409, 'Рассрочка уже полностью оплачена');
-    return { amount: installmentAmounts(d)[n - 1], n };
+    const amounts = installmentAmounts(d);
+    return { amount: what === 'rest' ? amounts.slice(n - 1).reduce((a, x) => a + x, 0) : amounts[n - 1], n };
   }
 
   /** Moves a pending order to its final state once; a payment for something already paid is logged for a refund. */
-  private applyStatus(orderId: string, status: PaymentStatus) {
+  private applyStatus(orderId: string, status: PaymentStatus, manual?: { by?: string; note?: string }) {
     if (status === 'pending') return;
     this.db.exec('BEGIN IMMEDIATE');
     try {
@@ -395,17 +413,26 @@ export class DealService {
         return this.db.exec('COMMIT');
       }
       const d = this.byId(dealId);
-      const kind = o.kind as 'down' | 'installment';
+      const kind = o.kind as 'down' | 'installment' | 'rest';
       const stillDue = kind === 'down' ? d.stage === 'pay' : d.stage === 'active' && d.installmentsPaid.length + 1 === o.n;
       if (!stillDue) {
         this.log(dealId, 'payment_duplicate', { orderId, amount: o.amount, kind, n: o.n });
         return this.db.exec('COMMIT');
       }
       const at = new Date().toISOString();
-      this.db.prepare('INSERT INTO payments (id, deal_id, kind, n, amount, method, at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-        orderId, dealId, kind, o.n, o.amount, o.method, at);
+      const insert = this.db.prepare('INSERT INTO payments (id, deal_id, kind, n, amount, method, at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      if (kind === 'rest') {
+        // Early repayment closes every remaining installment; each gets its own row so schedules and exports stay per installment.
+        const amounts = installmentAmounts(d);
+        for (let n = o.n as number; n <= d.term; n++) insert.run(`${orderId}:${n}`, dealId, 'installment', n, amounts[n - 1], o.method, at);
+      } else {
+        insert.run(orderId, dealId, kind, o.n, o.amount, o.method, at);
+      }
       if (kind === 'down') this.set(dealId, { down_payment: JSON.stringify({ at, method: o.method }), stage: 'active' });
-      this.log(dealId, 'paid', { paymentId: orderId, kind: kind === 'down' ? 'down' : 'next', n: o.n, amount: o.amount, method: o.method });
+      this.log(dealId, 'paid', {
+        paymentId: orderId, kind: kind === 'down' ? 'down' : kind === 'rest' ? 'rest' : 'next', n: o.n, amount: o.amount, method: o.method,
+        ...(manual?.by ? { by: manual.by } : {}), ...(manual?.note ? { note: manual.note } : {}),
+      });
       this.db.exec('COMMIT');
     } catch (e) {
       this.db.exec('ROLLBACK');
@@ -415,3 +442,6 @@ export class DealService {
 }
 
 export type PaymentView = { id: string; status: PaymentStatus; url?: string };
+
+const paymentTitle = (what: PayWhat, n: number | null) =>
+  what === 'down' ? 'первоначальный взнос' : what === 'rest' ? `досрочное погашение с платежа ${n}` : `платёж ${n}`;

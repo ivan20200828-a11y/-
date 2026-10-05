@@ -30,7 +30,7 @@ export function openDb(file: string): DB {
     CREATE TABLE IF NOT EXISTS payments (
       id TEXT PRIMARY KEY,
       deal_id TEXT NOT NULL REFERENCES deals(id),
-      kind TEXT NOT NULL,          -- 'down' | 'installment'
+      kind TEXT NOT NULL,          -- 'down' | 'installment' (early repayment is stored as one row per installment)
       n INTEGER,                   -- installment number, NULL for the down payment
       amount INTEGER NOT NULL,
       method TEXT NOT NULL,
@@ -39,7 +39,7 @@ export function openDb(file: string): DB {
     CREATE TABLE IF NOT EXISTS payment_orders (
       id TEXT PRIMARY KEY,         -- our order id, sent to the acquirer
       deal_id TEXT NOT NULL REFERENCES deals(id),
-      kind TEXT NOT NULL,          -- 'down' | 'installment'
+      kind TEXT NOT NULL,          -- 'down' | 'installment' (early repayment is stored as one row per installment)
       n INTEGER,
       amount INTEGER NOT NULL,
       method TEXT NOT NULL,
