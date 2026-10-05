@@ -8,7 +8,7 @@ const db = openDb(process.env.DB_FILE ?? 'sdelka.db');
 
 if (!TEST_MODE) throw new Error('Реальные SMS и проверка паспорта ещё не подключены: запускайте с PROVIDERS_MODE=test');
 
-const { app, deals, auth } = buildApp({ db, providers: providersFromEnv(), logger: true, appUrl: process.env.APP_URL, webDir: process.env.WEB_DIR });
+const { app, deals, auth } = buildApp({ db, providers: providersFromEnv(), logger: true, appUrl: process.env.APP_URL ?? `http://localhost:${port}`, webDir: process.env.WEB_DIR });
 
 // First start: create the first manager account from the environment, or a demo one.
 if (!auth.hasManagers()) {

@@ -1,0 +1,32 @@
+# Установка на сервер с доменом и HTTPS:
+#   1. Направьте домен (A-запись) на IP сервера.
+#   2. В settings.env впишите DOMAIN, ADMIN_EMAIL и ADMIN_PASSWORD.
+#   3. docker compose --env-file settings.env up -d
+# Сертификат HTTPS выпускается автоматически.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: settings.env
+    environment:
+      APP_URL: https://${DOMAIN:?впишите DOMAIN в settings.env}
+      PUBLIC_URL: https://${DOMAIN}
+      SEED: "off"  # на сервере демо-сделок нет
+    volumes:
+      - data:/data
+  https:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    depends_on:
+      - app
+volumes:
+  data:
+  caddy:

@@ -8,7 +8,7 @@
     "scheme": "sdelka",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/images/icon.png",
       "bundleIdentifier": "ru.sdelka.online",
       "infoPlist": {
         "NSCameraUsageDescription": "Камера нужна, чтобы сфотографировать паспорт и сделать селфи для проверки личности."

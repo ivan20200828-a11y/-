@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Сделка онлайн: как запустить</title>
+<style>
+  :root { --bg:#f4f6f5; --card:#fff; --fg:#16211d; --muted:#5d6b65; --line:#d8dfdb; --acc:#0f6b5a; --soft:#dcefe9; --warn:#fbf0d9; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1513; --card:#18211e; --fg:#e6ece9; --muted:#9aa8a2; --line:#2b3632; --acc:#4cc3a6; --soft:#173a32; --warn:#3a2f17; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif; padding:32px 16px 64px; }
+  main { max-width:760px; margin:0 auto; display:flex; flex-direction:column; gap:20px; }
+  h1 { font-size:28px; line-height:1.25; margin:0; } h2 { font-size:19px; margin:0 0 8px; }
+  p, li { max-width:68ch; } p { margin:0 0 8px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px 22px; }
+  ol, ul { margin:4px 0 8px; padding-left:22px; } li { margin:4px 0; }
+  code { background:var(--soft); color:var(--fg); padding:1px 6px; border-radius:6px; font-size:14.5px; }
+  pre { background:var(--soft); padding:12px 14px; border-radius:10px; overflow-x:auto; font-size:14px; margin:6px 0 10px; }
+  .lead { color:var(--muted); } .note { background:var(--warn); border-radius:10px; padding:10px 14px; }
+  table { border-collapse:collapse; width:100%; font-size:15px; } td { border-top:1px solid var(--line); padding:7px 8px 7px 0; vertical-align:top; }
+  td:first-child { color:var(--muted); white-space:nowrap; padding-right:16px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Сделка онлайн</h1>
+    <p class="lead">Приложение для дистанционных сделок с рассрочкой: проверка личности, договор, подпись кодом из SMS, оплата и личный кабинет клиента. Работает в браузере на компьютере и телефоне.</p>
+  </header>
+
+  <section>
+    <h2>Запуск на своём компьютере</h2>
+    <ol>
+      <li>Установите Node.js версии 22 или новее с сайта <a href="https://nodejs.org">nodejs.org</a> (кнопка LTS). Это нужно один раз.</li>
+      <li>Распакуйте архив в любую папку.</li>
+      <li>Запустите файл для своей системы:
+        <ul>
+          <li>Windows: <code>start.bat</code> двойным щелчком;</li>
+          <li>Mac: <code>start.command</code>. В первый раз щёлкните по нему правой кнопкой и выберите «Открыть»;</li>
+          <li>Linux: <code>./start.sh</code> в терминале.</li>
+        </ul>
+      </li>
+      <li>Через несколько секунд откроется браузер с адресом <code>http://localhost:3000</code>. Окно с текстом не закрывайте, пока работаете: это сервер.</li>
+    </ol>
+    <table>
+      <tr><td>Клиент</td><td>на главной странице «Открыть мою сделку»: демо-клиент проходит всё оформление</td></tr>
+      <tr><td>Менеджер</td><td>почта <code>manager@demo.ru</code>, пароль <code>demo1234</code></td></tr>
+      <tr><td>Коды из SMS</td><td>везде <code>1234</code></td></tr>
+      <tr><td>Данные</td><td>хранятся в папке <code>data</code>. Удалите её, чтобы начать заново.</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>Установка на сервер для клиентов</h2>
+    <p>Подойдёт любой сервер в России с Ubuntu (Timeweb Cloud, Selectel, Яндекс Облако, REG.RU) от 1 ГБ памяти. Персональные данные клиентов по 152-ФЗ должны храниться в России.</p>
+    <ol>
+      <li>Купите домен или поддомен, например <code>sdelka.ваша-компания.ru</code>, и направьте его A-записью на IP сервера.</li>
+      <li>Установите Docker на сервер: <pre>curl -fsSL https://get.docker.com | sh</pre></li>
+      <li>Скопируйте папку из архива на сервер и в файле <code>settings.env</code> впишите <code>DOMAIN</code>, свою почту и надёжный пароль в <code>ADMIN_EMAIL</code> и <code>ADMIN_PASSWORD</code>.</li>
+      <li>Запустите в этой папке: <pre>docker compose --env-file settings.env up -d</pre></li>
+    </ol>
+    <p>Через минуту приложение откроется по адресу <code>https://ваш-домен</code>, сертификат HTTPS выпускается сам. Демо-сделок на сервере нет. Данные лежат в томе Docker <code>data</code>, его стоит регулярно копировать.</p>
+  </section>
+
+  <section>
+    <h2>На телефоне</h2>
+    <p>Клиент открывает ссылку из SMS. Чтобы приложение было на экране телефона с иконкой, в браузере нажмите «Поделиться» → «На экран Домой» (iPhone) или меню → «Добавить на главный экран» (Android).</p>
+    <p>Отдельные приложения для App Store и Google Play собираются из исходного кода через сервис Expo (EAS). Для этого нужны аккаунты разработчика Apple (99 $ в год) и Google (25 $ один раз).</p>
+  </section>
+
+  <section>
+    <h2>Первые шаги менеджера</h2>
+    <ol>
+      <li>Войдите и откройте «Компания»: впишите реквизиты, они попадут в каждый договор.</li>
+      <li>В «Сотрудники» добавьте коллег.</li>
+      <li>Нажмите «Новая сделка», укажите клиента, предмет, сумму, взнос и срок. Клиенту уйдёт ссылка, её можно и скопировать.</li>
+      <li>Следите за этапами и оплатами в списке сделок. Оплату переводом или наличными отмечайте в карточке сделки.</li>
+    </ol>
+  </section>
+
+  <section class="note">
+    <h2>Сейчас работает тестовый режим</h2>
+    <p>SMS, проверка паспорта и оплата пока имитируются: деньги не списываются, SMS не отправляются. Для настоящей работы нужно подключить:</p>
+    <ul>
+      <li>оплату: Т-Касса или другой эквайринг (ключи вписываются в <code>settings.env</code>);</li>
+      <li>SMS: например, SMSC.ru;</li>
+      <li>распознавание паспорта и сверку лица: например, Smart Engines;</li>
+      <li>проверку текста договора и соглашения о простой электронной подписи юристом.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>
