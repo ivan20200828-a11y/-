@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { buildApp } from '../src/app.ts';
 import { openDb } from '../src/db.ts';
 import type { DealService } from '../src/deals.ts';
-import { tkassa, tkassaToken } from '../src/payments/tkassa.ts';
+import { tkassa, tkassaToken, type ReceiptConfig } from '../src/payments/tkassa.ts';
 import { ESIGN_AGREEMENT } from '../src/esign.ts';
 import { testProviders } from '../src/providers.ts';
 
@@ -46,9 +46,9 @@ function fakeBank() {
   return { fetch, notify, payments, requests };
 }
 
-async function setup() {
+async function setup(receipts?: ReceiptConfig) {
   const bank = fakeBank();
-  const payments = tkassa({ terminalKey: KEY, password: PASSWORD, publicUrl: 'https://api.test/', fetch: bank.fetch });
+  const payments = tkassa({ terminalKey: KEY, password: PASSWORD, publicUrl: 'https://api.test/', fetch: bank.fetch, receipts });
   const { app, deals } = buildApp({ db: openDb(':memory:'), providers: { ...testProviders, payments }, appUrl: 'https://app.test' });
   const deal = deals.create({ clientName: 'Петров Пётр Петрович', phone: '+7 900 123-45-67', subject: 'Лодка', total: 1000000, downPct: 20, term: 12 });
   await signDeal(deals, deal.token);
@@ -126,4 +126,28 @@ test('a late webhook is covered by asking the bank for the status', async () => 
   assert.equal((await app.inject({ method: 'GET', url: `${c}/payments/${a.payment.id}` })).json().deal.stage, 'active');
   assert.equal((await app.inject({ method: 'GET', url: `${c}/payments/${b.payment.id}` })).json().payment.status, 'paid');
   assert.equal((await app.inject({ method: 'GET', url: `${c}/payments/nope` })).statusCode, 404);
+});
+
+test('payments carry a 54-ФЗ receipt when the taxation system is set', async () => {
+  const { app, bank, token } = await setup({ taxation: 'usn_income', tax: 'none', handover: 'signing', ffd: '1.2' });
+  const c = `/api/client/${token}`;
+  await app.inject({ method: 'POST', url: `${c}/pay`, payload: { what: 'down', method: 'card' } });
+  const init = bank.requests.find((r) => r.method === 'Init')!.body;
+  assert.equal(init.Token, tkassaToken(init, PASSWORD), 'the receipt does not break the signature');
+  assert.deepEqual(init.Receipt, {
+    FfdVersion: '1.2', Taxation: 'usn_income', Phone: '+79001234567',
+    Items: [{ Name: 'Лодка', Price: 200000 * 100, Quantity: 1, Amount: 200000 * 100, Tax: 'none',
+      PaymentMethod: 'partial_payment', PaymentObject: 'commodity', MeasurementUnit: 'шт' }],
+  });
+  await app.inject({ method: 'POST', url: '/api/payments/notify', payload: bank.notify([...bank.payments.keys()][0], 'CONFIRMED') });
+  await app.inject({ method: 'POST', url: `${c}/pay`, payload: { what: 'next', method: 'sbp' } });
+  const item = (bank.requests.filter((r) => r.method === 'Init')[1].body.Receipt as { Items: Record<string, unknown>[] }).Items[0];
+  assert.equal(item.PaymentMethod, 'credit_payment', 'installments repay the credit');
+  assert.equal(item.PaymentObject, 'payment');
+});
+
+test('without receipt settings no receipt is sent', async () => {
+  const { app, bank, token } = await setup();
+  await app.inject({ method: 'POST', url: `/api/client/${token}/pay`, payload: { what: 'down', method: 'card' } });
+  assert.equal(bank.requests.find((r) => r.method === 'Init')!.body.Receipt, undefined);
 });

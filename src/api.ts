@@ -4,8 +4,17 @@ import type { Company, Deal, PaidBy, Passport, PayMethod, PayWhat } from '@/stat
 /** Server address. Set EXPO_PUBLIC_API_URL when the server runs elsewhere (a phone cannot reach "localhost" on your computer). */
 export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
-/** The server runs SMS, payments and identity checks in test mode; the code is always 1234. */
-export const TEST_MODE = true;
+export type TestPart = 'sms' | 'kyc' | 'payments';
+
+let testParts: Promise<TestPart[]> | null = null;
+/** Which services the server still imitates (SMS, identity check, payments); asked once per app start. */
+export function serverTestParts() {
+  testParts ??= fetch(`${API_URL}/api/health`)
+    .then((r) => r.json())
+    .then((h: { test?: TestPart[] }) => h.test ?? [])
+    .catch(() => { testParts = null; return []; });
+  return testParts;
+}
 
 type WireDeal = Omit<Deal, 'createdAt' | 'signature' | 'downPayment' | 'esignAgreement' | 'installmentsPaid'> & {
   createdAt: string;
@@ -106,8 +115,12 @@ export const companyApi = {
   save: (c: Company) => call<{ company: Company; missing: string[] }>('/api/company', { method: 'PUT', body: c, manager: true }),
 };
 
-/** A link to download a spreadsheet; it works once, within five minutes. */
-export async function exportUrl(kind: 'deals.csv' | 'payments.csv') {
+export const backupsApi = {
+  get: () => call<{ daily: { dir: string; keep: number; files: string[] } | null }>('/api/backups', { manager: true }),
+};
+
+/** A link to download a spreadsheet or, for an administrator, a copy of the database; it works once, within five minutes. */
+export async function exportUrl(kind: 'deals.csv' | 'payments.csv' | 'backup.db') {
   const { key } = await call<{ key: string }>('/api/export/key', { body: {}, manager: true });
   return `${apiBase()}/api/export/${kind}?key=${encodeURIComponent(key)}`;
 }

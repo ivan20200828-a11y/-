@@ -5,8 +5,9 @@ import { testProviders } from './providers.ts';
 const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString();
 
 /** Demo deals for an empty database. The first one opens with the client token "demo". */
-export function seedDemo(svc: DealService) {
-  if (svc.list().length > 0) return;
+export function seedDemo(live: DealService) {
+  if (live.list().length > 0) return;
+  const svc = new DealService(live.db, testProviders);
   // Example requisites so the demo contract looks complete; replace them in «Компания».
   svc.company.update(null, {
     name: 'ООО «Альфа-Сделка»', city: 'Москва', inn: '7701234567', kpp: '770101001', ogrn: '1237700012345',

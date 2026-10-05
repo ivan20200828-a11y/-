@@ -32,6 +32,7 @@ const EVENT_LABEL: Record<string, string> = {
   reminder_overdue: 'Отправлено напоминание о просрочке',
   invite_resent: 'Приглашение отправлено повторно',
   cancelled: 'Сделка отменена',
+  sms_failed: 'SMS не отправлено, проверьте баланс SMSC.ru',
 };
 
 /** "Досрочное погашение: 1 200 000 ₽, перевод · п/п № 42" for a payment event. */

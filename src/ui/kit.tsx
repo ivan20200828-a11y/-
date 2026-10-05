@@ -1,11 +1,11 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
   type TextInputProps, type TextStyle, type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { TEST_MODE } from '@/api';
+import { serverTestParts, type TestPart } from '@/api';
 import type { Stage } from '@/state/types';
 
 import { useColors } from './theme';
@@ -16,7 +16,7 @@ export function Screen({ children, wide }: { children: ReactNode; wide?: boolean
     <SafeAreaView style={{ flex: 1, backgroundColor: c.bg }} edges={['bottom', 'left', 'right']}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
         <View style={{ width: '100%', maxWidth: wide ? 900 : 480, alignSelf: 'center', gap: 14 }}>
-          {TEST_MODE && <TestBanner />}
+          <TestBanner />
           {children}
         </View>
       </ScrollView>
@@ -24,11 +24,22 @@ export function Screen({ children, wide }: { children: ReactNode; wide?: boolean
   );
 }
 
+const PART_LABEL: Record<TestPart, string> = { sms: 'SMS', kyc: 'проверка личности', payments: 'оплата' };
+
+/** Says which services are still imitated, so nobody mistakes a test payment for a real one. */
 function TestBanner() {
   const c = useColors();
+  const [parts, setParts] = useState<TestPart[]>([]);
+  useEffect(() => {
+    serverTestParts().then(setParts);
+  }, []);
+  if (!parts.length) return null;
+  const list = parts.map((p) => PART_LABEL[p]);
+  const what = list.length > 1 ? `${list.slice(0, -1).join(', ')} и ${list.at(-1)}` : list[0];
   return (
     <Text style={{ fontSize: 12, backgroundColor: c.warnSoft, color: c.warn, padding: 8, borderRadius: 8, overflow: 'hidden' }}>
-      Тестовый режим: SMS, оплата и проверка личности имитируются, деньги не списываются. Код везде 1234.
+      Тестовый режим: {what} {parts.length > 1 ? 'имитируются' : 'имитируется'}
+      {parts.includes('payments') ? ', деньги не списываются' : ''}.{parts.includes('sms') ? ' Код везде 1234.' : ''}
     </Text>
   );
 }

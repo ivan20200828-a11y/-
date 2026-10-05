@@ -1,14 +1,21 @@
+import path from 'node:path';
+
+import { BackupService } from './backup.ts';
 import { openDb } from './db.ts';
 import { buildApp } from './app.ts';
-import { TEST_MODE, providersFromEnv } from './providers.ts';
+import { providersFromEnv, testParts } from './providers.ts';
 import { advanceDemo, seedDemo } from './seed.ts';
 
 const port = Number(process.env.PORT ?? 3000);
-const db = openDb(process.env.DB_FILE ?? 'sdelka.db');
+const dbFile = process.env.DB_FILE ?? 'sdelka.db';
+const db = openDb(dbFile);
+// A copy of the database every day, the last BACKUP_KEEP (14) kept; BACKUP_DIR=off turns it off.
+const backups = process.env.BACKUP_DIR === 'off'
+  ? undefined
+  : new BackupService(db, process.env.BACKUP_DIR ?? path.join(path.dirname(path.resolve(dbFile)), 'backups'), Number(process.env.BACKUP_KEEP ?? 14));
 
-if (!TEST_MODE) throw new Error('Реальные SMS и проверка паспорта ещё не подключены: запускайте с PROVIDERS_MODE=test');
-
-const { app, deals, auth } = buildApp({ db, providers: providersFromEnv(), logger: true, appUrl: process.env.APP_URL ?? `http://localhost:${port}`, webDir: process.env.WEB_DIR });
+const providers = providersFromEnv();
+const { app, deals, auth } = buildApp({ db, providers, logger: true, appUrl: process.env.APP_URL ?? `http://localhost:${port}`, backups, webDir: process.env.WEB_DIR });
 
 // First start: create the first manager account from the environment, or a demo one.
 if (!auth.hasManagers()) {
@@ -22,11 +29,23 @@ if (process.env.SEED !== 'off') {
   await advanceDemo(deals);
 }
 await app.listen({ port, host: '0.0.0.0' });
+const test = testParts(providers);
+if (test.length) app.log.warn(`В тестовом режиме: ${test.join(', ')}`);
 
-// Payment reminders by SMS: on start and then every hour.
+// Payment reminders by SMS; errors are logged, the next run tries again.
 const remind = () => deals.sendReminders().then(
   (sent) => sent.length && app.log.info(`Напоминаний о платежах отправлено: ${sent.length}`),
   (e) => app.log.error(e),
 );
-await remind();
-setInterval(remind, 60 * 60 * 1000).unref();
+// Hourly: payment reminders by SMS, and the day's database copy once the date changes.
+const hourly = async () => {
+  await remind();
+  try {
+    const made = backups?.daily();
+    if (made) app.log.info(`Резервная копия базы: ${path.join(backups!.dir, made)}`);
+  } catch (e) {
+    app.log.error(e, 'Не получилось сделать резервную копию базы');
+  }
+};
+await hourly();
+setInterval(hourly, 60 * 60 * 1000).unref();

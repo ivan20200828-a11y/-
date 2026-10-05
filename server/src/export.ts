@@ -26,7 +26,7 @@ const day = (iso: string | Date) => new Date(iso).toLocaleDateString('ru-RU', { 
  * so the app first asks for a one-time key valid for five minutes and opens the file with it.
  */
 export class ExportService {
-  private keys = new Map<string, number>();
+  private keys = new Map<string, { until: number; admin: boolean }>();
   db: DB;
   deals: DealService;
   constructor(db: DB, deals: DealService) {
@@ -34,16 +34,18 @@ export class ExportService {
     this.deals = deals;
   }
 
-  newKey() {
+  /** A key made by an administrator also opens the database copy. */
+  newKey(admin = false) {
     const key = randomBytes(24).toString('base64url');
-    this.keys.set(key, Date.now() + KEY_TTL_MS);
+    this.keys.set(key, { until: Date.now() + KEY_TTL_MS, admin });
     return key;
   }
 
-  useKey(key: string) {
-    const until = this.keys.get(key);
+  useKey(key: string, needAdmin = false) {
+    const k = this.keys.get(key);
     this.keys.delete(key);
-    if (!until || until < Date.now()) throw new ApiError(401, 'Ссылка на выгрузку устарела. Нажмите «Выгрузить» ещё раз.');
+    if (!k || k.until < Date.now()) throw new ApiError(401, 'Ссылка на выгрузку устарела. Нажмите «Выгрузить» ещё раз.');
+    if (needAdmin && !k.admin) throw new ApiError(403, 'Копию базы скачивает только администратор');
   }
 
   /** One row per payment; an early repayment shows as several installments with the same operation number. */

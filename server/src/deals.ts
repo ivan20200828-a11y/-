@@ -4,7 +4,7 @@ import { CompanyService } from './company.ts';
 import type { DB } from './db.ts';
 import { ESIGN_AGREEMENT } from './esign.ts';
 import { addMonths } from './schedule.ts';
-import type { PaymentStatus, Providers } from './providers.ts';
+import { testProviders, type PaymentStatus, type Providers } from './providers.ts';
 import type { Deal, DealEvent, PaidBy, Passport, PayMethod, PayWhat, Stage } from './types.ts';
 
 export class ApiError extends Error {
@@ -116,14 +116,16 @@ export class DealService {
     const count = (this.db.prepare('SELECT COUNT(*) AS c FROM deals').get() as { c: number }).c;
     const id = opts.id ?? randomUUID();
     const no = `Д-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
-    const token = opts.token ?? randomBytes(16).toString('base64url');
+    let token = opts.token ?? randomBytes(16).toString('base64url');
+    while (!opts.token && token.startsWith('demo')) token = randomBytes(16).toString('base64url'); // "demo…" is kept for demo deals
     const seller = this.company.get();
     this.db.prepare(`INSERT INTO deals (id, no, token, seller, city, subject, total, down_pct, term, client_name, phone, stage, created_at, seller_details)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'invited', ?, ?)`).run(
       id, no, token, seller.name, seller.city, n.subject.trim(), n.total, n.downPct, n.term, n.clientName.trim(), n.phone.trim(),
       opts.createdAt ?? new Date().toISOString(), JSON.stringify(seller));
     this.log(id, 'created', { ...n, ...(by ? { by } : {}) });
-    void this.providers.sms.send(n.phone, this.inviteText(seller.name, token));
+    // The deal exists either way; if the SMS fails, the manager sees it in the history and can resend or copy the link.
+    this.sms(id, token, n.phone, this.inviteText(seller.name, token)).catch(() => {});
     return this.byId(id);
   }
 
@@ -141,7 +143,7 @@ export class DealService {
   async resendInvite(id: string, by?: string) {
     const d = this.byId(id);
     if (d.stage === 'active' || d.stage === 'cancelled') throw new ApiError(409, 'Сделка уже оформлена или отменена');
-    await this.providers.sms.send(d.phone, this.inviteText(d.seller, d.token));
+    await this.sms(d.id, d.token, d.phone, this.inviteText(d.seller, d.token));
     this.log(d.id, 'invite_resent', by ? { by } : undefined);
     return d;
   }
@@ -175,11 +177,26 @@ export class DealService {
     return this.byId(d.id);
   }
 
+  /** Demo deals (made by the seed for trying the app out) never send real SMS, and their code stays 1234. */
+  private smsFor(token: string) {
+    return token.startsWith('demo') ? testProviders.sms : this.providers.sms;
+  }
+
+  /** Sends an SMS; a gateway failure is logged on the deal and reported to the person as a readable error. */
+  private async sms(dealId: string, token: string, phone: string, text: string) {
+    try {
+      await this.smsFor(token).send(phone, text);
+    } catch (e) {
+      this.log(dealId, 'sms_failed', { phone, error: String((e as Error).message ?? e) });
+      throw new ApiError(502, 'Не получилось отправить SMS. Попробуйте ещё раз через минуту.');
+    }
+  }
+
   private async sendCode(d: Deal, purpose: 'phone' | 'sign', phone: string, text: (code: string) => string) {
-    const code = this.providers.sms.newCode();
+    const code = this.smsFor(d.token).newCode();
     this.db.prepare(`INSERT OR REPLACE INTO codes (deal_id, purpose, code, expires_at, attempts) VALUES (?, ?, ?, ?, 0)`).run(
       d.id, purpose, code, new Date(Date.now() + CODE_TTL_MS).toISOString());
-    await this.providers.sms.send(phone, text(code));
+    await this.sms(d.id, d.token, phone, text(code));
     this.log(d.id, `${purpose}_code_sent`, { phone });
   }
 
@@ -296,7 +313,11 @@ export class DealService {
       const text = type === 'reminder_soon'
         ? `${d.seller}: платёж ${n} по договору ${d.no} на ${rubText(amount)} до ${dayText(due)}.${link}`
         : `${d.seller}: платёж ${n} по договору ${d.no} на ${rubText(amount)} просрочен с ${dayText(due)}. Пожалуйста, оплатите.${link}`;
-      await this.providers.sms.send(d.phone, text);
+      try {
+        await this.sms(d.id, d.token, d.phone, text);
+      } catch {
+        continue; // not marked as sent, so the next hourly run tries again
+      }
       this.log(d.id, type, { n, amount, due: due.toISOString() });
       sent.push({ dealId: d.id, type, n });
     }
@@ -315,6 +336,7 @@ export class DealService {
       started = await this.providers.payments.create({
         orderId: order.id, amount, method,
         description: `Сделка ${d.no}, ${paymentTitle(what, n)}`,
+        receipt: { item: d.subject, phone: d.phone, part: what === 'down' ? 'down' : 'installment', final: what === 'rest' || n === d.term },
         returnUrl: this.appUrl ? `${this.appUrl}/client/cabinet?t=${encodeURIComponent(d.token)}` : undefined,
       });
     } catch (e) {

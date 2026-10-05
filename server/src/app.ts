@@ -1,14 +1,18 @@
+import { randomUUID } from 'node:crypto';
+import { readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { AuthService, type Manager } from './auth.ts';
+import { snapshot, type BackupService } from './backup.ts';
 import { contractPdf } from './contract-pdf.ts';
 import type { DB } from './db.ts';
 import { ESIGN_AGREEMENT } from './esign.ts';
 import { ApiError, DealService, type NewDeal } from './deals.ts';
-import { TEST_MODE, type Providers } from './providers.ts';
+import { testParts, type Providers } from './providers.ts';
 import { ExportService } from './export.ts';
 import type { Company, PaidBy, Passport, PayMethod, PayWhat } from './types.ts';
 
@@ -16,11 +20,13 @@ export type AppOptions = {
   db: DB; providers: Providers; logger?: boolean; appUrl?: string;
   /** Folder with the web build of the app (`npx expo export -p web`); served from the same address as the API. */
   webDir?: string;
+  /** Daily copies of the database, when the server keeps them. */
+  backups?: BackupService;
 };
 
 const image = (b64: unknown) => (typeof b64 === 'string' && b64.length > 0 ? Buffer.from(b64.replace(/^data:[^,]+,/, ''), 'base64') : null);
 
-export function buildApp({ db, providers, logger = false, appUrl, webDir }: AppOptions): { app: FastifyInstance; deals: DealService; auth: AuthService } {
+export function buildApp({ db, providers, logger = false, appUrl, webDir, backups }: AppOptions): { app: FastifyInstance; deals: DealService; auth: AuthService } {
   const app = Fastify({ logger, bodyLimit: 20 * 1024 * 1024 });
   const deals = new DealService(db, providers, { appUrl });
   const auth = new AuthService(db);
@@ -42,7 +48,7 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir }: AppO
     return reply.code(500).send({ error: 'Что-то пошло не так на сервере. Попробуйте ещё раз.' });
   });
 
-  app.get('/api/health', async () => ({ ok: true, testMode: TEST_MODE, payments: providers.payments.name }));
+  app.get('/api/health', async () => ({ ok: true, test: testParts(providers), payments: providers.payments.name }));
 
   // ----- manager login -----
   app.post('/api/auth/login', async (req) => {
@@ -86,7 +92,11 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir }: AppO
     });
 
     // ----- spreadsheets -----
-    m.post('/api/export/key', async () => ({ key: exports.newKey() }));
+    m.post('/api/export/key', async (req) => ({ key: exports.newKey(who(req).admin) }));
+    m.get('/api/backups', async (req) => {
+      if (!who(req).admin) throw new ApiError(403, 'Резервные копии видит только администратор');
+      return { daily: backups ? { dir: backups.dir, keep: backups.keep, files: backups.list() } : null };
+    });
 
     // ----- team -----
     m.get('/api/managers', async (req) => ({ managers: auth.list(who(req)) }));
@@ -134,8 +144,16 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir }: AppO
 
   // ----- spreadsheet download, by a one-time key from /api/export/key -----
   app.get('/api/export/:kind', async (req, reply) => {
-    exports.useKey(String((req.query as { key?: string }).key ?? ''));
     const kind = (req.params as { kind: string }).kind;
+    exports.useKey(String((req.query as { key?: string }).key ?? ''), kind === 'backup.db');
+    if (kind === 'backup.db') {
+      const file = path.join(tmpdir(), `sdelka-${randomUUID()}.db`);
+      snapshot(db, file);
+      const data = readFileSync(file);
+      rmSync(file, { force: true });
+      const name = `sdelka-${new Date().toISOString().slice(0, 10)}.db`;
+      return reply.type('application/vnd.sqlite3').header('Content-Disposition', `attachment; filename="${name}"`).send(data);
+    }
     const csv = kind === 'payments.csv' ? exports.payments() : kind === 'deals.csv' ? exports.dealsTable() : null;
     if (!csv) return reply.code(404).send({ error: 'Не найдено' });
     const name = `${kind === 'payments.csv' ? 'платежи' : 'сделки'}-${new Date().toISOString().slice(0, 10)}.csv`;

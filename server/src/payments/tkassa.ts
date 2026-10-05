@@ -8,7 +8,16 @@
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
 
-import type { PaymentProvider, PaymentStatus } from '../providers.ts';
+import type { PaymentOrder, PaymentProvider, PaymentStatus } from '../providers.ts';
+
+/** Fiscal receipts (54-ФЗ) through the bank's online cash register. The accountant picks these values. */
+export type ReceiptConfig = {
+  taxation: 'osn' | 'usn_income' | 'usn_income_outcome' | 'esn' | 'patent';
+  tax: 'none' | 'vat0' | 'vat5' | 'vat7' | 'vat10' | 'vat20' | 'vat22';
+  /** When the goods pass to the buyer: at signing (sale on credit) or after the last payment (prepayments). */
+  handover: 'signing' | 'full_payment';
+  ffd: '1.05' | '1.2';
+};
 
 export type TkassaConfig = {
   terminalKey: string;
@@ -16,6 +25,8 @@ export type TkassaConfig = {
   /** Public URL of this server, the bank posts notifications to {publicUrl}/api/payments/notify. */
   publicUrl: string;
   apiUrl?: string;
+  /** Without it no receipt is sent with the payment. */
+  receipts?: ReceiptConfig;
   fetch?: typeof fetch;
 };
 
@@ -24,7 +35,44 @@ export function tkassaConfigFromEnv(env: NodeJS.ProcessEnv): TkassaConfig {
   if (!terminalKey || !password || !publicUrl) {
     throw new Error('Для Т-Кассы нужны TKASSA_TERMINAL_KEY, TKASSA_PASSWORD и PUBLIC_URL');
   }
-  return { terminalKey, password, publicUrl, apiUrl: env.TKASSA_API_URL };
+  const receipts = env.TKASSA_TAXATION
+    ? {
+        taxation: env.TKASSA_TAXATION as ReceiptConfig['taxation'],
+        tax: (env.TKASSA_TAX ?? 'none') as ReceiptConfig['tax'],
+        handover: (env.TKASSA_HANDOVER === 'full_payment' ? 'full_payment' : 'signing') as ReceiptConfig['handover'],
+        ffd: (env.TKASSA_FFD === '1.05' ? '1.05' : '1.2') as ReceiptConfig['ffd'],
+      }
+    : undefined;
+  return { terminalKey, password, publicUrl, apiUrl: env.TKASSA_API_URL, receipts };
+}
+
+/**
+ * The receipt for one payment, as a single line for the whole amount. Goods handed over at signing are a sale on
+ * credit: the down payment is "частичный расчёт и кредит", later payments are "оплата кредита". Goods handed over
+ * after the last payment: earlier payments are "частичная предоплата", the last one is "полный расчёт".
+ */
+export function tkassaReceipt(order: PaymentOrder, cfg: ReceiptConfig) {
+  const r = order.receipt!;
+  const amount = order.amount * 100;
+  const [method, object] = cfg.handover === 'signing'
+    ? r.part === 'down' ? ['partial_payment', 'commodity'] : ['credit_payment', 'payment']
+    : r.final ? ['full_payment', 'commodity'] : ['prepayment', 'commodity'];
+  const digits = r.phone.replace(/\D/g, '');
+  return {
+    FfdVersion: cfg.ffd,
+    Taxation: cfg.taxation,
+    Phone: `+${digits.length === 11 && digits.startsWith('8') ? `7${digits.slice(1)}` : digits}`,
+    Items: [{
+      Name: r.item.slice(0, 128),
+      Price: amount,
+      Quantity: 1,
+      Amount: amount,
+      Tax: cfg.tax,
+      PaymentMethod: method,
+      PaymentObject: object,
+      ...(cfg.ffd === '1.2' ? { MeasurementUnit: 'шт' } : {}),
+    }],
+  };
 }
 
 type Params = Record<string, unknown>;
@@ -70,6 +118,8 @@ export function tkassa(cfg: TkassaConfig): PaymentProvider {
         Description: order.description.slice(0, 140),
         NotificationURL: `${cfg.publicUrl.replace(/\/$/, '')}/api/payments/notify`,
         ...(order.returnUrl ? { SuccessURL: order.returnUrl, FailURL: order.returnUrl } : {}),
+        // Nested objects are left out of the Token, so the receipt does not change the signature.
+        ...(cfg.receipts && order.receipt ? { Receipt: tkassaReceipt(order, cfg.receipts) } : {}),
       });
       const providerId = String(init.PaymentId);
       let url = init.PaymentURL as string | undefined;
