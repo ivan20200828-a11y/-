@@ -1,5 +1,5 @@
 import { session } from '@/lib/session';
-import type { Deal, Passport, PayMethod } from '@/state/types';
+import type { Company, Deal, Passport, PayMethod } from '@/state/types';
 
 /** Server address. Set EXPO_PUBLIC_API_URL when the server runs elsewhere (a phone cannot reach "localhost" on your computer). */
 export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -95,6 +95,20 @@ export type Payment = { id: string; status: 'pending' | 'paid' | 'failed'; url?:
 
 export type EsignAgreement = { edition: number; title: string; text: string[] };
 export const esignAgreement = () => call<EsignAgreement>('/api/esign-agreement');
+
+/** Absolute server address; on the web build served by the server itself the API address is empty. */
+const apiBase = () => API_URL || (typeof window !== 'undefined' ? window.location.origin : '');
+
+export const companyApi = {
+  get: () => call<{ company: Company; missing: string[] }>('/api/company', { manager: true }),
+  save: (c: Company) => call<{ company: Company; missing: string[] }>('/api/company', { method: 'PUT', body: c, manager: true }),
+};
+
+/** A link to download a spreadsheet; it works once, within five minutes. */
+export async function exportUrl(kind: 'deals.csv' | 'payments.csv') {
+  const { key } = await call<{ key: string }>('/api/export/key', { body: {}, manager: true });
+  return `${apiBase()}/api/export/${kind}?key=${encodeURIComponent(key)}`;
+}
 
 export const contractPdfUrl = (token: string) => `${API_URL}/api/client/${encodeURIComponent(token)}/contract.pdf`;
 

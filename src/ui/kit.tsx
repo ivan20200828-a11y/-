@@ -96,6 +96,7 @@ export function Field({ label, style, ...input }: TextInputProps & { label: stri
     <View style={{ gap: 4, flexGrow: 1, minWidth: 140 }}>
       <Text style={{ color: c.muted, fontSize: 13 }}>{label}</Text>
       <TextInput
+        accessibilityLabel={label}
         placeholderTextColor={c.muted}
         style={[{ color: c.fg, backgroundColor: c.sunk, borderColor: c.line, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 }, style]}
         {...input}

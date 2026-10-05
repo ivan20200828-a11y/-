@@ -1,13 +1,14 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Linking, Platform, Pressable, View } from 'react-native';
 
 import { rub } from '@/lib/money';
-import { authApi, type Manager } from '@/api';
-import { days, dealProgress } from '@/lib/schedule';
+import { authApi, companyApi, exportUrl, type Manager } from '@/api';
+import { days, dealProgress, portfolio } from '@/lib/schedule';
 import { STAGE_LABEL, useDealList } from '@/state/deals';
 import type { Deal, Stage } from '@/state/types';
-import { Button, Card, Field, H2, Hint, KV, Label, Loading, Pill, Progress, Row, Screen, Tabs, Txt } from '@/ui/kit';
+import { useColors } from '@/ui/theme';
+import { Button, Card, ErrorText, Field, H2, Hint, KV, Label, Loading, Pill, Progress, Row, Screen, Tabs, Txt } from '@/ui/kit';
 
 const pillKind = (s: Stage) => (s === 'active' ? 'ok' : s === 'cancelled' ? 'bad' : s === 'sign' || s === 'pay' ? 'warn' : 'wait');
 
@@ -35,8 +36,12 @@ export default function Deals() {
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
   const [me, setMe] = useState<Manager | null>(null);
+  const [missing, setMissing] = useState<string[]>([]);
   useEffect(() => {
-    authApi.me().then(setMe, () => {});
+    authApi.me().then((m) => {
+      setMe(m);
+      if (m.admin) companyApi.get().then((r) => setMissing(r.missing), () => {});
+    }, () => {});
   }, []);
   const shown = deals ? overdueFirst(deals).filter((d) => matchesFilter(d, filter) && matchesSearch(d, search)) : null;
   return (
@@ -47,9 +52,18 @@ export default function Deals() {
         <Button title="Новая сделка" onPress={() => router.push('/manager/new')} />
         <Row>
           {me?.admin && <Button ghost title="Сотрудники" onPress={() => router.push('/manager/team')} />}
+          {me?.admin && <Button ghost title="Компания" onPress={() => router.push('/manager/company')} />}
           <Button ghost title="Выйти" onPress={async () => { await authApi.logout(); router.replace('/manager/login'); }} />
         </Row>
       </Card>
+      {missing.length > 0 && (
+        <Card>
+          <Txt style={{ fontWeight: '600' }}>Заполните реквизиты компании</Txt>
+          <Hint>Без них в договоре не будет: {missing.join(', ')}.</Hint>
+          <Button ghost title="Заполнить" onPress={() => router.push('/manager/company')} />
+        </Card>
+      )}
+      {deals && <Summary deals={deals} />}
       <Field label="Поиск" value={search} onChangeText={setSearch} placeholder="ФИО, телефон, номер сделки или предмет" />
       <Tabs items={FILTERS} value={filter} onChange={setFilter} />
       {!deals && <Loading error={error} />}
@@ -83,4 +97,52 @@ export default function Deals() {
 function overdueFirst<D extends Parameters<typeof dealProgress>[0]>(deals: D[]) {
   const late = (d: D) => dealProgress(d).overdue?.days ?? -1;
   return deals.map((d, i) => ({ d, i, late: late(d) })).sort((a, b) => b.late - a.late || a.i - b.i).map((x) => x.d);
+}
+
+function Summary({ deals }: { deals: Deal[] }) {
+  const s = portfolio(deals);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const download = async (kind: 'payments.csv' | 'deals.csv') => {
+    setBusy(kind);
+    setError('');
+    try {
+      const url = await exportUrl(kind);
+      if (Platform.OS === 'web') window.location.href = url;
+      else await Linking.openURL(url);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy('');
+    }
+  };
+  return (
+    <Card>
+      <H2>Деньги</H2>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
+        <Stat label="Получено всего" value={rub(s.collected)} />
+        <Stat label="В этом месяце" value={rub(s.month)} />
+        <Stat label="Ожидается за 30 дней" value={rub(s.expected)} />
+        <Stat label="Просрочено" value={rub(s.overdue)} note={s.overdueDeals ? `в ${s.overdueDeals} ${s.overdueDeals === 1 ? 'сделке' : 'сделках'}` : 'нет'} bad={s.overdue > 0} />
+      </View>
+      <Hint>Сделок на оформлении: {s.onboarding}, на выплате: {s.active}.</Hint>
+      <Row>
+        <Button ghost title="Выгрузить платежи" loading={busy === 'payments.csv'} onPress={() => download('payments.csv')} />
+        <Button ghost title="Выгрузить сделки" loading={busy === 'deals.csv'} onPress={() => download('deals.csv')} />
+      </Row>
+      <Hint>Таблицы открываются в Excel и Google Таблицах.</Hint>
+      {!!error && <ErrorText>{error}</ErrorText>}
+    </Card>
+  );
+}
+
+function Stat({ label, value, note, bad }: { label: string; value: string; note?: string; bad?: boolean }) {
+  const c = useColors();
+  return (
+    <View style={{ flexGrow: 1, flexBasis: 140, gap: 2 }}>
+      <Label>{label}</Label>
+      <Txt style={{ fontSize: 20, fontWeight: '700', fontVariant: ['tabular-nums'], ...(bad ? { color: c.seal } : {}) }}>{value}</Txt>
+      {note && <Hint>{note}</Hint>}
+    </View>
+  );
 }

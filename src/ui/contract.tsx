@@ -1,6 +1,7 @@
 import { Text, View } from 'react-native';
 
 import { buildSchedule, dealProgress } from '@/lib/schedule';
+import { sellerIntro, sellerRequisites } from '@/lib/company';
 import { formatDate, rub } from '@/lib/money';
 import { downAmount, type Deal } from '@/state/types';
 
@@ -46,6 +47,7 @@ export function ContractText({ deal }: { deal: Deal }) {
   const c = useColors();
   const p = deal.passport;
   const down = downAmount(deal);
+  const seller = deal.sellerDetails;
   const P = ({ children }: { children: React.ReactNode }) => <Txt style={{ fontSize: 14, lineHeight: 21 }}>{children}</Txt>;
   const B = ({ children }: { children: React.ReactNode }) => <Text style={{ fontWeight: '700' }}>{children}</Text>;
   return (
@@ -53,7 +55,7 @@ export function ContractText({ deal }: { deal: Deal }) {
       <Txt style={{ fontWeight: '700', textAlign: 'center', fontSize: 14 }}>ДОГОВОР КУПЛИ-ПРОДАЖИ С РАССРОЧКОЙ ПЛАТЕЖА № {deal.no}</Txt>
       <P>г. {deal.city}, {formatDate(deal.signature?.at ?? new Date())}</P>
       <P>
-        {deal.seller}, именуемое «Продавец», и гражданин(ка) РФ <B>{p?.fio ?? deal.clientName}</B>
+        {seller ? sellerIntro(seller) : deal.seller}, именуемое «Продавец», и гражданин(ка) РФ <B>{p?.fio ?? deal.clientName}</B>
         {p ? `, ${p.birth} г. р., паспорт ${p.series}, выдан ${p.issued} ${p.issuedAt}, зарегистрирован(а) по адресу: ${p.address}` : ''}
         , именуемый(ая) «Покупатель», заключили настоящий договор о нижеследующем.
       </P>
@@ -64,8 +66,25 @@ export function ContractText({ deal }: { deal: Deal }) {
       </P>
       <P><B>3. Подписание.</B> Договор подписывается простой электронной подписью (кодом из SMS) в порядке, установленном Соглашением об использовании простой электронной подписи (Приложение № 2). Стороны признают такую подпись равнозначной собственноручной в соответствии с Федеральным законом № 63-ФЗ «Об электронной подписи».</P>
       <P><B>4. Просрочка.</B> За просрочку платежа начисляется неустойка 0,1% от суммы просроченного платежа за каждый день.</P>
+      {seller && (
+        <>
+          <P><B>5. Реквизиты сторон.</B></P>
+          <P><B>Продавец:</B>{'\n'}{sellerRequisites(seller).join('\n')}</P>
+          <P><B>Покупатель:</B>{'\n'}{buyerRequisites(deal).join('\n')}</P>
+        </>
+      )}
       <P><B>Приложение № 1. График платежей</B></P>
       <ScheduleTable deal={deal} />
     </View>
   );
+}
+
+function buyerRequisites(deal: Deal) {
+  const p = deal.passport;
+  return [
+    p?.fio ?? deal.clientName,
+    p && `Паспорт ${p.series}, выдан ${p.issued} ${p.issuedAt}`,
+    p && `Адрес регистрации: ${p.address}`,
+    `Телефон: ${deal.phone}`,
+  ].filter(Boolean) as string[];
 }

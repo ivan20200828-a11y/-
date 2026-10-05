@@ -176,3 +176,33 @@ test('a manager resends the invitation, sees the photos and cancels an unpaid de
   const events = (await app.inject({ url: `/api/deals/${id}`, headers: auth })).json().events;
   assert.deepEqual(events.filter((e: { type: string }) => ['invite_resent', 'cancelled'].includes(e.type)).map((e: { data: { by: string } }) => e.data.by), ['Тест', 'Тест']);
 });
+
+test('company details go into new contracts; old deals keep theirs', async () => {
+  const app = await setup();
+  const put = (payload: object) => app.inject({ method: 'PUT', url: '/api/company', headers: auth, payload });
+  assert.ok((await app.inject({ url: '/api/company', headers: auth })).json().missing.includes('ИНН'));
+  const old = (await app.inject({ method: 'POST', url: '/api/deals', headers: auth, payload: newDeal })).json().deal;
+  assert.equal((await put({ inn: '12345' })).statusCode, 400, 'ИНН is 10 or 12 digits');
+  const saved = await put({ name: 'ООО «Бета»', inn: '7701234567', ogrn: '1237700012345', director: 'директора Б. Б. Бетова' });
+  assert.equal(saved.statusCode, 200);
+  assert.equal(saved.json().company.name, 'ООО «Бета»');
+  const fresh = (await app.inject({ method: 'POST', url: '/api/deals', headers: auth, payload: newDeal })).json().deal;
+  assert.equal(fresh.seller, 'ООО «Бета»');
+  assert.equal(fresh.sellerDetails.inn, '7701234567');
+  assert.equal((await app.inject({ url: `/api/deals/${old.id}`, headers: auth })).json().deal.seller, 'ООО «Альфа-Сделка»');
+});
+
+test('deals and payments download as Excel-friendly CSV with a one-time key', async () => {
+  const app = await setup();
+  await app.inject({ method: 'POST', url: '/api/deals', headers: auth, payload: { ...newDeal, subject: 'Лодка; с мотором' } });
+  assert.equal((await app.inject({ method: 'POST', url: '/api/export/key' })).statusCode, 401);
+  const key = (await app.inject({ method: 'POST', url: '/api/export/key', headers: auth })).json().key;
+  const csv = await app.inject({ url: `/api/export/deals.csv?key=${key}` });
+  assert.equal(csv.statusCode, 200);
+  assert.match(csv.headers['content-type'] as string, /text\/csv/);
+  assert.ok(csv.body.startsWith('﻿Договор;Создана;Клиент'));
+  assert.match(csv.body, /"Лодка; с мотором"/);
+  assert.equal((await app.inject({ url: `/api/export/deals.csv?key=${key}` })).statusCode, 401, 'a key works once');
+  const key2 = (await app.inject({ method: 'POST', url: '/api/export/key', headers: auth })).json().key;
+  assert.match((await app.inject({ url: `/api/export/payments.csv?key=${key2}` })).body, /^﻿Дата;Договор/);
+});

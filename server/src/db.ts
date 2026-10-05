@@ -77,5 +77,6 @@ export function openDb(file: string): DB {
   const has = (table: string, col: string) =>
     (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === col);
   if (!has('deals', 'esign_agreement')) db.exec('ALTER TABLE deals ADD COLUMN esign_agreement TEXT');
+  if (!has('deals', 'seller_details')) db.exec('ALTER TABLE deals ADD COLUMN seller_details TEXT');
   return db;
 }

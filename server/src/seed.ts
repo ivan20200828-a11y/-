@@ -7,6 +7,14 @@ const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString()
 /** Demo deals for an empty database. The first one opens with the client token "demo". */
 export function seedDemo(svc: DealService) {
   if (svc.list().length > 0) return;
+  // Example requisites so the demo contract looks complete; replace them in «Компания».
+  svc.company.update(null, {
+    name: 'ООО «Альфа-Сделка»', city: 'Москва', inn: '7701234567', kpp: '770101001', ogrn: '1237700012345',
+    address: '123100, г. Москва, Пресненская наб., д. 12, офис 45',
+    director: 'генерального директора Андреева Павла Викторовича, действующего на основании Устава',
+    bank: 'АО «Пример Банк»', bik: '044525999', account: '40702810900000012345', corrAccount: '30101810400000000999',
+    phone: '+7 495 123-45-67', email: 'info@alfa-sdelka.ru',
+  });
   svc.create({ clientName: 'Ковалёва Мария Игоревна', phone: '+7 925 301-44-12', subject: 'Квартира-студия, ЖК «Река»', total: 6800000, downPct: 30, term: 36 },
     { id: 'd139', token: 'demo-kovaleva', createdAt: daysAgo(70) });
   svc.create({ clientName: 'Ибрагимов Руслан Тимурович', phone: '+7 903 718-02-55', subject: 'Kia Sportage 2024', total: 3150000, downPct: 15, term: 18 },

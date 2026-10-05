@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
+import { CompanyService } from './company.ts';
 import type { DB } from './db.ts';
 import { ESIGN_AGREEMENT } from './esign.ts';
 import { addMonths } from './schedule.ts';
@@ -20,7 +21,6 @@ const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDat
 const rubText = (n: number) => `${n.toLocaleString('ru-RU')} ₽`;
 const dayText = (d: Date) => d.toLocaleDateString('ru-RU');
 const MAX_CODE_ATTEMPTS = 5;
-const SELLER = { seller: 'ООО «Альфа-Сделка»', city: 'Москва' };
 
 type Row = Record<string, string | number | null>;
 
@@ -45,9 +45,11 @@ export class DealService {
   providers: Providers;
   /** Public address of the web app; the bank sends the client back there after paying. */
   appUrl?: string;
+  company: CompanyService;
   constructor(db: DB, providers: Providers, opts: { appUrl?: string } = {}) {
     this.db = db;
     this.providers = providers;
+    this.company = new CompanyService(db);
     this.appUrl = opts.appUrl?.replace(/\/$/, '');
   }
 
@@ -62,7 +64,7 @@ export class DealService {
       subject: r.subject as string, total: r.total as number, downPct: r.down_pct as number, term: r.term as number,
       clientName: r.client_name as string, phone: r.phone as string, stage: r.stage as Stage, createdAt: r.created_at as string,
       passport: json<Passport>(r.passport), faceMatch: (r.face_match as number | null) ?? undefined,
-      signature: json(r.signature), downPayment: json(r.down_payment), esignAgreement: json(r.esign_agreement),
+      signature: json(r.signature), downPayment: json(r.down_payment), esignAgreement: json(r.esign_agreement), sellerDetails: json(r.seller_details),
       installmentsPaid: paid.map((p) => ({ n: p.n, at: p.at })),
     };
   }
@@ -115,12 +117,13 @@ export class DealService {
     const id = opts.id ?? randomUUID();
     const no = `Д-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
     const token = opts.token ?? randomBytes(16).toString('base64url');
-    this.db.prepare(`INSERT INTO deals (id, no, token, seller, city, subject, total, down_pct, term, client_name, phone, stage, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'invited', ?)`).run(
-      id, no, token, SELLER.seller, SELLER.city, n.subject.trim(), n.total, n.downPct, n.term, n.clientName.trim(), n.phone.trim(),
-      opts.createdAt ?? new Date().toISOString());
+    const seller = this.company.get();
+    this.db.prepare(`INSERT INTO deals (id, no, token, seller, city, subject, total, down_pct, term, client_name, phone, stage, created_at, seller_details)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'invited', ?, ?)`).run(
+      id, no, token, seller.name, seller.city, n.subject.trim(), n.total, n.downPct, n.term, n.clientName.trim(), n.phone.trim(),
+      opts.createdAt ?? new Date().toISOString(), JSON.stringify(seller));
     this.log(id, 'created', { ...n, ...(by ? { by } : {}) });
-    void this.providers.sms.send(n.phone, this.inviteText(SELLER.seller, token));
+    void this.providers.sms.send(n.phone, this.inviteText(seller.name, token));
     return this.byId(id);
   }
 

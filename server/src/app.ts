@@ -9,7 +9,8 @@ import type { DB } from './db.ts';
 import { ESIGN_AGREEMENT } from './esign.ts';
 import { ApiError, DealService, type NewDeal } from './deals.ts';
 import { TEST_MODE, type Providers } from './providers.ts';
-import type { Passport, PayMethod } from './types.ts';
+import { ExportService } from './export.ts';
+import type { Company, Passport, PayMethod } from './types.ts';
 
 export type AppOptions = {
   db: DB; providers: Providers; logger?: boolean; appUrl?: string;
@@ -23,12 +24,13 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir }: AppO
   const app = Fastify({ logger, bodyLimit: 20 * 1024 * 1024 });
   const deals = new DealService(db, providers, { appUrl });
   const auth = new AuthService(db);
+  const exports = new ExportService(db, deals);
 
   // The mobile app and the web build call the API from other origins.
   app.addHook('onRequest', async (req, reply) => {
     reply.header('Access-Control-Allow-Origin', '*');
     reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    reply.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
     if (req.method === 'OPTIONS') return reply.code(204).send();
   });
 
@@ -73,6 +75,16 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir }: AppO
     m.post('/api/deals/:id/cancel', async (req) =>
       ({ deal: deals.cancel((req.params as { id: string }).id, String((req.body as { reason?: string } | null)?.reason ?? ''), who(req).name) }));
 
+    // ----- company details -----
+    m.get('/api/company', async () => ({ company: deals.company.get(), missing: deals.company.missing() }));
+    m.put('/api/company', async (req) => {
+      const company = deals.company.update(who(req), (req.body ?? {}) as Partial<Company>);
+      return { company, missing: deals.company.missing(company) };
+    });
+
+    // ----- spreadsheets -----
+    m.post('/api/export/key', async () => ({ key: exports.newKey() }));
+
     // ----- team -----
     m.get('/api/managers', async (req) => ({ managers: auth.list(who(req)) }));
     m.post('/api/managers', async (req, reply) => {
@@ -89,7 +101,7 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir }: AppO
     const deal = deals.byToken((req.params as P).token);
     reply.header('Content-Type', 'application/pdf');
     reply.header('Content-Disposition', `inline; filename="dogovor-${encodeURIComponent(deal.no)}.pdf"`);
-    return reply.send(await contractPdf(deal));
+    return reply.send(await contractPdf(deal, deals.company.get()));
   });
   app.post('/api/client/:token/start', async (req) => ({ deal: deals.start((req.params as P).token) }));
   app.post('/api/client/:token/phone/send', async (req) =>
@@ -115,6 +127,17 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir }: AppO
   app.get('/api/client/:token/payments/:id', async (req) => {
     const p = req.params as P & { id: string };
     return deals.paymentStatus(p.token, p.id);
+  });
+
+  // ----- spreadsheet download, by a one-time key from /api/export/key -----
+  app.get('/api/export/:kind', async (req, reply) => {
+    exports.useKey(String((req.query as { key?: string }).key ?? ''));
+    const kind = (req.params as { kind: string }).kind;
+    const csv = kind === 'payments.csv' ? exports.payments() : kind === 'deals.csv' ? exports.dealsTable() : null;
+    if (!csv) return reply.code(404).send({ error: 'Не найдено' });
+    const name = `${kind === 'payments.csv' ? 'платежи' : 'сделки'}-${new Date().toISOString().slice(0, 10)}.csv`;
+    return reply.type('text/csv; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="${kind}"; filename*=UTF-8''${encodeURIComponent(name)}`).send(csv);
   });
 
   // ----- acquirer webhook -----

@@ -4,9 +4,10 @@ import path from 'node:path';
 import PDFDocument from 'pdfkit';
 
 import { downAmount, installmentAmounts } from './deals.ts';
+import { sellerIntro, sellerRequisites } from './company.ts';
 import { ESIGN_AGREEMENT } from './esign.ts';
 import { addMonths } from './schedule.ts';
-import type { Deal } from './types.ts';
+import type { Company, Deal } from './types.ts';
 
 const require = createRequire(import.meta.url);
 const FONT_DIR = path.join(path.dirname(require.resolve('dejavu-fonts-ttf/package.json')), 'ttf');
@@ -16,7 +17,20 @@ const date = (d: Date) => d.toLocaleDateString('ru-RU', { day: '2-digit', month:
 const dateTime = (d: Date) => `${date(d)} ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })} МСК`;
 
 /** The contract as a PDF, with the payment schedule and, once signed, the electronic signature details. */
-export function contractPdf(deal: Deal): Promise<Buffer> {
+/** The buyer's block in the "Реквизиты сторон" section. */
+function buyerRequisites(deal: Deal) {
+  const p = deal.passport;
+  return [
+    p?.fio ?? deal.clientName,
+    p && `Паспорт ${p.series}, выдан ${p.issued} ${p.issuedAt}`,
+    p && `Адрес регистрации: ${p.address}`,
+    `Телефон: ${deal.phone}`,
+  ].filter(Boolean) as string[];
+}
+
+/** `fallback` is the current company, for deals created before details were stored with the deal. */
+export function contractPdf(deal: Deal, fallback?: Company): Promise<Buffer> {
+  const seller = deal.sellerDetails ?? { ...(fallback as Company), name: deal.seller, city: deal.city };
   const doc = new PDFDocument({ size: 'A4', margin: 56, info: { Title: `Договор № ${deal.no}` } });
   doc.registerFont('regular', path.join(FONT_DIR, 'DejaVuSerif.ttf'));
   doc.registerFont('bold', path.join(FONT_DIR, 'DejaVuSerif-Bold.ttf'));
@@ -36,7 +50,7 @@ export function contractPdf(deal: Deal): Promise<Buffer> {
   doc.font('bold').fontSize(12).text(`ДОГОВОР КУПЛИ-ПРОДАЖИ С РАССРОЧКОЙ ПЛАТЕЖА № ${deal.no}`, { align: 'center' }).moveDown(0.8);
   doc.font('regular').fontSize(10.5).text(`г. ${deal.city}`, { continued: true }).text(date(start), { align: 'right' }).moveDown(0.8);
   doc.text(
-    `${deal.seller}, именуемое «Продавец», и гражданин(ка) РФ ${p?.fio ?? deal.clientName}` +
+    `${sellerIntro(seller)}, именуемое «Продавец», и гражданин(ка) РФ ${p?.fio ?? deal.clientName}` +
       (p ? `, ${p.birth} г. р., паспорт ${p.series}, выдан ${p.issued} ${p.issuedAt}, зарегистрирован(а) по адресу: ${p.address}` : '') +
       ', именуемый(ая) «Покупатель», заключили настоящий договор о нижеследующем.',
     { align: 'left' },
@@ -46,6 +60,13 @@ export function contractPdf(deal: Deal): Promise<Buffer> {
     `Остаток ${rub(deal.total - down)} оплачивается в рассрочку на ${deal.term} мес. согласно Приложению № 1, без процентов.`);
   para('3. Подписание.', 'Договор подписывается простой электронной подписью (кодом из SMS) в порядке, установленном Соглашением об использовании простой электронной подписи (Приложение № 2). Стороны признают такую подпись равнозначной собственноручной в соответствии с Федеральным законом № 63-ФЗ «Об электронной подписи».');
   para('4. Просрочка.', 'За просрочку платежа начисляется неустойка 0,1% от суммы просроченного платежа за каждый день.');
+
+  doc.font('bold').text('5. Реквизиты сторон').moveDown(0.3);
+  doc.font('bold').text('Продавец').font('regular');
+  for (const line of sellerRequisites(seller)) doc.text(line, { align: 'left' });
+  doc.moveDown(0.4).font('bold').text('Покупатель').font('regular');
+  for (const line of buyerRequisites(deal)) doc.text(line, { align: 'left' });
+  doc.moveDown(0.8);
 
   doc.moveDown(0.4).font('bold').text('Приложение № 1. График платежей').moveDown(0.4).font('regular');
   const x = doc.page.margins.left;

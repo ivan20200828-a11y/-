@@ -41,3 +41,26 @@ export const days = (n: number) => {
   const w = m10 === 1 && m100 !== 11 ? 'день' : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? 'дня' : 'дней';
   return `${n} ${w}`;
 };
+
+/** Money across all deals for the manager's summary: collected, overdue and expected soon. */
+export function portfolio(deals: (DealLike & { stage: string; downPayment?: { at: Date }; installmentsPaid: { n: number; at: Date }[] })[], now = new Date()) {
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const soon = new Date(+startOfDay(now) + 30 * DAY);
+  const r = { onboarding: 0, active: 0, collected: 0, month: 0, overdue: 0, overdueDeals: 0, expected: 0 };
+  for (const d of deals) {
+    if (d.stage === 'cancelled') continue;
+    if (d.stage === 'active') r.active++; else r.onboarding++;
+    const p = dealProgress(d, now);
+    r.collected += p.sum;
+    const down = Math.round((d.total * d.downPct) / 100);
+    if (d.downPayment && d.downPayment.at >= monthStart) r.month += down;
+    for (const paid of d.installmentsPaid) {
+      if (paid.at >= monthStart) r.month += p.rows.find((x) => x.n === paid.n)?.amount ?? 0;
+    }
+    if (p.overdue) { r.overdue += p.overdue.amount; r.overdueDeals++; }
+    if (d.downPayment) {
+      r.expected += p.rows.filter((x) => !p.paid.has(x.n) && startOfDay(x.date) >= startOfDay(now) && x.date < soon).reduce((a, x) => a + x.amount, 0);
+    }
+  }
+  return r;
+}
