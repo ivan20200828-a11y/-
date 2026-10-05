@@ -25,7 +25,7 @@ export class ApiError extends Error {
   }
 }
 
-export type Manager = { id: number; email: string; name: string };
+export type Manager = { id: number; email: string; name: string; admin: boolean };
 
 function hydrate(d: WireDeal): Deal {
   return {
@@ -74,9 +74,19 @@ export const authApi = {
 export const managerApi = {
   list: async () => (await call<{ deals: WireDeal[] }>('/api/deals', { manager: true })).deals.map(hydrate),
   get: async (id: string) => {
-    const r = await call<{ deal: WireDeal; events: { at: string; type: string; data: unknown }[] }>(`/api/deals/${id}`, { manager: true });
-    return { deal: hydrate(r.deal), events: r.events.map((e) => ({ ...e, at: new Date(e.at) })) };
+    const r = await call<{ deal: WireDeal; events: { at: string; type: string; data: unknown }[]; inviteUrl: string | null }>(
+      `/api/deals/${id}`, { manager: true });
+    return { deal: hydrate(r.deal), events: r.events.map((e) => ({ ...e, at: new Date(e.at) })), inviteUrl: r.inviteUrl };
   },
+  /** Passport and selfie photos from verification, as data URLs. */
+  kyc: async (id: string) =>
+    (await call<{ images: Partial<Record<'passport' | 'selfie', { url: string; at: string }>> }>(`/api/deals/${id}/kyc`, { manager: true })).images,
+  resendInvite: async (id: string) => { await call(`/api/deals/${id}/invite`, { body: {}, manager: true }); },
+  cancel: async (id: string, reason: string) =>
+    hydrate((await call<{ deal: WireDeal }>(`/api/deals/${id}/cancel`, { body: { reason }, manager: true })).deal),
+  team: async () => (await call<{ managers: Manager[] }>('/api/managers', { manager: true })).managers,
+  addColleague: async (m: { email: string; name: string; password: string; admin: boolean }) =>
+    (await call<{ manager: Manager }>('/api/managers', { body: m, manager: true })).manager,
   create: async (d: Pick<Deal, 'clientName' | 'phone' | 'subject' | 'total' | 'downPct' | 'term'>) =>
     hydrate((await call<{ deal: WireDeal }>('/api/deals', { body: d, manager: true })).deal),
 };

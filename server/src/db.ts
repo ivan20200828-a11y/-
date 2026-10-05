@@ -49,6 +49,14 @@ export function openDb(file: string): DB {
       url TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS kyc_images (
+      deal_id TEXT NOT NULL REFERENCES deals(id),
+      kind TEXT NOT NULL,          -- 'passport' | 'selfie'
+      mime TEXT NOT NULL,
+      data BLOB NOT NULL,
+      at TEXT NOT NULL,
+      PRIMARY KEY (deal_id, kind)
+    );
     CREATE TABLE IF NOT EXISTS codes (
       deal_id TEXT NOT NULL REFERENCES deals(id),
       purpose TEXT NOT NULL,       -- 'phone' | 'sign'

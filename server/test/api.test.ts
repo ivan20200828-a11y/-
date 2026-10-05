@@ -10,7 +10,7 @@ let auth: { authorization: string };
 
 async function setup() {
   const { app, auth: accounts } = buildApp({ db: openDb(':memory:'), providers: testProviders });
-  accounts.addManager('m@test.ru', 'Тест', 'secret-pass');
+  accounts.addManager('m@test.ru', 'Тест', 'secret-pass', true);
   const r = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'M@test.ru ', password: 'secret-pass' } });
   auth = { authorization: `Bearer ${r.json().token}` };
   return app;
@@ -131,4 +131,48 @@ test('the server can serve the web app with page addresses falling back to it', 
   assert.match((await app.inject({ url: '/' })).body, /root/);
   assert.equal((await app.inject({ url: '/api/nope' })).statusCode, 404);
   assert.equal((await app.inject({ url: '/api/health' })).statusCode, 200);
+});
+
+test('an admin adds colleagues; a regular manager cannot', async () => {
+  const app = await setup();
+  const add = (headers: Record<string, string>, payload: object) => app.inject({ method: 'POST', url: '/api/managers', headers, payload });
+  const created = await add(auth, { email: 'Anna@Test.ru', name: 'Анна', password: 'anna-pass-1' });
+  assert.equal(created.statusCode, 201);
+  assert.equal(created.json().manager.admin, false);
+  assert.equal((await add(auth, { email: 'anna@test.ru', name: 'Анна', password: 'anna-pass-1' })).statusCode, 409);
+  assert.equal((await add(auth, { email: 'bad', name: 'X', password: 'long-enough' })).statusCode, 400);
+
+  const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'anna@test.ru', password: 'anna-pass-1' } });
+  const anna = { authorization: `Bearer ${login.json().token}` };
+  assert.equal((await app.inject({ url: '/api/deals', headers: anna })).statusCode, 200);
+  assert.equal((await app.inject({ url: '/api/managers', headers: anna })).statusCode, 403);
+  assert.equal((await add(anna, { email: 'x@test.ru', name: 'X', password: 'long-enough' })).statusCode, 403);
+  assert.deepEqual((await app.inject({ url: '/api/managers', headers: auth })).json().managers.map((m: { email: string }) => m.email),
+    ['m@test.ru', 'anna@test.ru']);
+});
+
+test('a manager resends the invitation, sees the photos and cancels an unpaid deal', async () => {
+  const app = await setup();
+  const { id, token } = (await app.inject({ method: 'POST', url: '/api/deals', headers: auth, payload: newDeal })).json().deal;
+  const c = `/api/client/${token}`;
+  assert.equal((await app.inject({ method: 'POST', url: `/api/deals/${id}/invite`, headers: auth })).statusCode, 200);
+
+  await app.inject({ method: 'POST', url: `${c}/start` });
+  await app.inject({ method: 'POST', url: `${c}/phone/send`, payload: { phone: newDeal.phone } });
+  await app.inject({ method: 'POST', url: `${c}/phone/verify`, payload: { code: '1234' } });
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).toString('base64');
+  await app.inject({ method: 'POST', url: `${c}/kyc`, payload: { passportImage: jpeg, selfieImage: `data:image/jpeg;base64,${jpeg}` } });
+  const { images } = (await app.inject({ url: `/api/deals/${id}/kyc`, headers: auth })).json();
+  assert.match(images.passport.url, /^data:image\/jpeg;base64,\/9j\//);
+  assert.ok(images.selfie);
+  assert.equal((await app.inject({ url: `/api/deals/${id}/kyc` })).statusCode, 401, 'photos only for managers');
+
+  const cancel = (payload: object) => app.inject({ method: 'POST', url: `/api/deals/${id}/cancel`, headers: auth, payload });
+  assert.equal((await cancel({ reason: ' ' })).statusCode, 400);
+  assert.equal((await cancel({ reason: 'Клиент передумал' })).json().deal.stage, 'cancelled');
+  assert.equal((await app.inject({ url: c })).json().deal.stage, 'cancelled');
+  assert.equal((await app.inject({ method: 'POST', url: `${c}/phone/send`, payload: { phone: newDeal.phone } })).statusCode, 409);
+  assert.equal((await app.inject({ method: 'POST', url: `/api/deals/${id}/invite`, headers: auth })).statusCode, 409);
+  const events = (await app.inject({ url: `/api/deals/${id}`, headers: auth })).json().events;
+  assert.deepEqual(events.filter((e: { type: string }) => ['invite_resent', 'cancelled'].includes(e.type)).map((e: { data: { by: string } }) => e.data.by), ['Тест', 'Тест']);
 });

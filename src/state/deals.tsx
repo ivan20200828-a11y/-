@@ -96,14 +96,13 @@ export function useDealList() {
 }
 
 export function useDealDetails(id: string) {
-  const [data, setData] = useState<{ deal: Deal; events: DealEvent[] } | null>(null);
+  const [data, setData] = useState<{ deal: Deal; events: DealEvent[]; inviteUrl: string | null } | null>(null);
   const [error, setError] = useState('');
-  useFocusEffect(
-    useCallback(() => {
-      managerApi.get(id).then((d) => { setData(d); setError(''); }, (e) => setError(managerError(e)));
-    }, [id]),
-  );
-  return { ...data, error };
+  const reload = useCallback(() => {
+    managerApi.get(id).then((d) => { setData(d); setError(''); }, (e) => setError(managerError(e)));
+  }, [id]);
+  useFocusEffect(reload);
+  return { ...data, error, reload };
 }
 
 export const STAGE_LABEL: Record<Stage, string> = {
@@ -114,4 +113,5 @@ export const STAGE_LABEL: Record<Stage, string> = {
   sign: 'Ждёт подписания',
   pay: 'Ждёт оплаты взноса',
   active: 'Платежи по графику',
+  cancelled: 'Отменена',
 };

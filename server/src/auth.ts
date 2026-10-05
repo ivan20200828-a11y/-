@@ -7,7 +7,11 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_FAILED_LOGINS = 5;
 const LOCK_MS = 15 * 60 * 1000;
 
-export type Manager = { id: number; email: string; name: string };
+/** A manager account. Admins also add colleagues. */
+export type Manager = { id: number; email: string; name: string; admin: boolean };
+
+const toManager = (r: { id: number; email: string; name: string; admin: number }): Manager =>
+  ({ id: r.id, email: r.email, name: r.name, admin: r.admin === 1 });
 
 function hashPassword(password: string) {
   const salt = randomBytes(16);
@@ -40,13 +44,33 @@ export class AuthService {
         expires_at TEXT NOT NULL
       );
     `);
+    const cols = db.prepare('PRAGMA table_info(managers)').all() as { name: string }[];
+    if (!cols.some((c) => c.name === 'admin')) {
+      // Accounts made before roles existed: the first one becomes the admin.
+      db.exec('ALTER TABLE managers ADD COLUMN admin INTEGER NOT NULL DEFAULT 0');
+      db.exec('UPDATE managers SET admin = 1 WHERE id = (SELECT MIN(id) FROM managers)');
+    }
   }
 
-  addManager(email: string, name: string, password: string): Manager {
+  addManager(email: string, name: string, password: string, admin = false): Manager {
     if (password.length < 8) throw new ApiError(400, 'Пароль должен быть не короче 8 символов');
     const e = email.trim().toLowerCase();
-    this.db.prepare('INSERT INTO managers (email, name, password) VALUES (?, ?, ?)').run(e, name.trim(), hashPassword(password));
-    return this.db.prepare('SELECT id, email, name FROM managers WHERE email = ?').get(e) as Manager;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw new ApiError(400, 'Укажите почту сотрудника');
+    if (!name.trim()) throw new ApiError(400, 'Укажите имя сотрудника');
+    if (this.db.prepare('SELECT 1 FROM managers WHERE email = ?').get(e)) throw new ApiError(409, 'Сотрудник с такой почтой уже есть');
+    this.db.prepare('INSERT INTO managers (email, name, password, admin) VALUES (?, ?, ?, ?)').run(e, name.trim(), hashPassword(password), admin ? 1 : 0);
+    return toManager(this.db.prepare('SELECT id, email, name, admin FROM managers WHERE email = ?').get(e) as never);
+  }
+
+  /** Everyone with access to the manager's cabinet; only an admin may see and change the team. */
+  list(by: Manager): Manager[] {
+    if (!by.admin) throw new ApiError(403, 'Список сотрудников доступен только администратору');
+    return (this.db.prepare('SELECT id, email, name, admin FROM managers ORDER BY id').all() as never[]).map(toManager);
+  }
+
+  invite(by: Manager, b: { email?: string; name?: string; password?: string; admin?: boolean }) {
+    if (!by.admin) throw new ApiError(403, 'Добавлять сотрудников может только администратор');
+    return this.addManager(String(b.email ?? ''), String(b.name ?? ''), String(b.password ?? ''), b.admin === true);
   }
 
   hasManagers() {
@@ -72,16 +96,16 @@ export class AuthService {
     const token = randomBytes(32).toString('base64url');
     this.db.prepare('INSERT INTO sessions (token, manager_id, expires_at) VALUES (?, ?, ?)').run(
       token, row.id, new Date(Date.now() + SESSION_TTL_MS).toISOString());
-    return { token, manager: { id: row.id, email: row.email, name: row.name } };
+    return { token, manager: toManager(row as never) };
   }
 
   /** Returns the manager for a "Bearer <token>" header, or throws 401. */
   check(authorization: string | undefined): Manager {
     const token = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
-    const m = this.db.prepare(`SELECT m.id, m.email, m.name FROM sessions s JOIN managers m ON m.id = s.manager_id
-      WHERE s.token = ? AND s.expires_at > ?`).get(token, new Date().toISOString()) as Manager | undefined;
+    const m = this.db.prepare(`SELECT m.id, m.email, m.name, m.admin FROM sessions s JOIN managers m ON m.id = s.manager_id
+      WHERE s.token = ? AND s.expires_at > ?`).get(token, new Date().toISOString()) as never;
     if (!m) throw new ApiError(401, 'Войдите в кабинет менеджера');
-    return m;
+    return toManager(m);
   }
 
   logout(authorization: string | undefined) {

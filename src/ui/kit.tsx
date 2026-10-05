@@ -49,9 +49,11 @@ export function H1({ children, style }: TProps) {
 export function H2({ children, style }: TProps) {
   return <Txt style={[{ fontSize: 17, fontWeight: '700' }, style]}>{children}</Txt>;
 }
-export function Txt({ children, style }: { children: ReactNode; style?: TextStyle | TextStyle[] | (TextStyle | undefined)[] }) {
+export function Txt({ children, style, selectable }: {
+  children: ReactNode; style?: TextStyle | TextStyle[] | (TextStyle | undefined)[]; selectable?: boolean;
+}) {
   const c = useColors();
-  return <Text style={[{ color: c.fg, fontSize: 15, lineHeight: 22 }, style as TextStyle]}>{children}</Text>;
+  return <Text selectable={selectable} style={[{ color: c.fg, fontSize: 15, lineHeight: 22 }, style as TextStyle]}>{children}</Text>;
 }
 export function Hint({ children, style }: TProps) {
   const c = useColors();

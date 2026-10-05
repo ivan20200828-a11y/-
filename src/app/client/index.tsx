@@ -20,6 +20,7 @@ export default function Invite() {
   }, [t, token, load]);
 
   if (!deal || (t && t !== deal.token)) return <Screen><Loading error={error} onRetry={load} /></Screen>;
+  if (deal.stage === 'cancelled') return <Cancelled seller={deal.seller} no={deal.no} />;
   if (deal.stage === 'active') return <Redirect href="/client/cabinet" />;
   if (deal.stage !== 'invited') return <Redirect href={`/client/${deal.stage}`} />;
 
@@ -46,6 +47,18 @@ export default function Invite() {
         <Hint>Всё оформление проходит в приложении: проверка личности, договор, подпись и оплата взноса. В офис приходить не нужно.</Hint>
         <Button title="Начать оформление" onPress={start} loading={busy} />
         {!!stepError && <ErrorText>{stepError}</ErrorText>}
+      </Card>
+    </Screen>
+  );
+}
+
+function Cancelled({ seller, no }: { seller: string; no: string }) {
+  return (
+    <Screen>
+      <Card>
+        <Label>Сделка № {no}</Label>
+        <H1>Сделка отменена</H1>
+        <Hint>{seller} отменил эту сделку. Если это ошибка, свяжитесь с вашим менеджером.</Hint>
       </Card>
     </Screen>
   );

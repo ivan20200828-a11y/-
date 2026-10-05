@@ -61,10 +61,23 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir }: AppO
     });
     m.get('/api/auth/me', async (req) => ({ manager: (req as unknown as { manager: Manager }).manager }));
     m.get('/api/deals', async () => ({ deals: deals.list() }));
-    m.post('/api/deals', async (req, reply) => reply.code(201).send({ deal: deals.create(req.body as NewDeal) }));
+    const who = (req: unknown) => (req as { manager: Manager }).manager;
+    m.post('/api/deals', async (req, reply) => reply.code(201).send({ deal: deals.create(req.body as NewDeal, {}, who(req).name) }));
     m.get('/api/deals/:id', async (req) => {
       const { id } = req.params as { id: string };
-      return { deal: deals.byId(id), events: deals.events(id) };
+      const deal = deals.byId(id);
+      return { deal, events: deals.events(id), inviteUrl: deals.inviteUrl(deal.token) };
+    });
+    m.get('/api/deals/:id/kyc', async (req) => ({ images: deals.kycImages((req.params as { id: string }).id) }));
+    m.post('/api/deals/:id/invite', async (req) => ({ deal: await deals.resendInvite((req.params as { id: string }).id, who(req).name) }));
+    m.post('/api/deals/:id/cancel', async (req) =>
+      ({ deal: deals.cancel((req.params as { id: string }).id, String((req.body as { reason?: string } | null)?.reason ?? ''), who(req).name) }));
+
+    // ----- team -----
+    m.get('/api/managers', async (req) => ({ managers: auth.list(who(req)) }));
+    m.post('/api/managers', async (req, reply) => {
+      const b = (req.body ?? {}) as { email?: string; name?: string; password?: string; admin?: boolean };
+      return reply.code(201).send({ manager: auth.invite(who(req), b) });
     });
   });
 

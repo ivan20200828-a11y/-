@@ -24,6 +24,9 @@ const SELLER = { seller: 'ООО «Альфа-Сделка»', city: 'Москв
 
 type Row = Record<string, string | number | null>;
 
+/** Picture format by its first bytes; phones send JPEG, the web picker may send PNG. */
+const imageType = (b: Buffer) => (b[0] === 0x89 && b[1] === 0x50 ? 'image/png' : b[0] === 0x52 && b[8] === 0x57 ? 'image/webp' : 'image/jpeg');
+
 const json = <T>(v: unknown): T | undefined => (v == null ? undefined : (JSON.parse(String(v)) as T));
 
 export const downAmount = (d: Pick<Deal, 'total' | 'downPct'>) => Math.round((d.total * d.downPct) / 100);
@@ -102,7 +105,7 @@ export class DealService {
     if (!allowed.includes(d.stage)) throw new ApiError(409, 'Этот шаг сейчас недоступен. Обновите страницу сделки.');
   }
 
-  create(n: NewDeal, opts: { id?: string; token?: string; createdAt?: string } = {}): Deal {
+  create(n: NewDeal, opts: { id?: string; token?: string; createdAt?: string } = {}, by?: string): Deal {
     if (!n.clientName?.trim() || !n.subject?.trim()) throw new ApiError(400, 'Укажите ФИО клиента и предмет сделки');
     if (String(n.phone ?? '').replace(/\D/g, '').length < 11) throw new ApiError(400, 'Укажите телефон клиента полностью');
     if (!Number.isInteger(n.total) || n.total <= 0) throw new ApiError(400, 'Стоимость должна быть целым числом рублей больше нуля');
@@ -116,9 +119,48 @@ export class DealService {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'invited', ?)`).run(
       id, no, token, SELLER.seller, SELLER.city, n.subject.trim(), n.total, n.downPct, n.term, n.clientName.trim(), n.phone.trim(),
       opts.createdAt ?? new Date().toISOString());
-    this.log(id, 'created', n);
-    void this.providers.sms.send(n.phone, `${SELLER.seller}: оформите сделку по ссылке, код приглашения ${token}`);
+    this.log(id, 'created', { ...n, ...(by ? { by } : {}) });
+    void this.providers.sms.send(n.phone, this.inviteText(SELLER.seller, token));
     return this.byId(id);
+  }
+
+  /** Address of the client's deal in the web app; null when the server does not know where the app lives. */
+  inviteUrl(token: string) {
+    return this.appUrl ? `${this.appUrl}/client?t=${encodeURIComponent(token)}` : null;
+  }
+
+  private inviteText(seller: string, token: string) {
+    const url = this.inviteUrl(token);
+    return url ? `${seller}: оформите сделку онлайн по ссылке ${url}` : `${seller}: оформите сделку в приложении, код приглашения ${token}`;
+  }
+
+  /** Sends the invitation SMS again, for a client who lost it or has not started. */
+  async resendInvite(id: string, by?: string) {
+    const d = this.byId(id);
+    if (d.stage === 'active' || d.stage === 'cancelled') throw new ApiError(409, 'Сделка уже оформлена или отменена');
+    await this.providers.sms.send(d.phone, this.inviteText(d.seller, d.token));
+    this.log(d.id, 'invite_resent', by ? { by } : undefined);
+    return d;
+  }
+
+  /** Cancels a deal that has not been paid yet; the client then sees that it was cancelled. */
+  cancel(id: string, reason: string, by?: string) {
+    const d = this.byId(id);
+    if (d.stage === 'cancelled') return d;
+    if (d.downPayment) throw new ApiError(409, 'По сделке уже есть оплата. Отмена оформляется через возврат денег.');
+    if (!String(reason ?? '').trim()) throw new ApiError(400, 'Укажите причину отмены');
+    this.set(d.id, { stage: 'cancelled' });
+    this.db.prepare('DELETE FROM codes WHERE deal_id = ?').run(d.id);
+    this.log(d.id, 'cancelled', { reason: reason.trim(), ...(by ? { by } : {}) });
+    return this.byId(d.id);
+  }
+
+  /** Photos the client uploaded at verification, as data URLs for the manager's review. */
+  kycImages(id: string) {
+    this.byId(id);
+    const rows = this.db.prepare('SELECT kind, mime, data, at FROM kyc_images WHERE deal_id = ?').all(id) as
+      { kind: string; mime: string; data: Uint8Array; at: string }[];
+    return Object.fromEntries(rows.map((r) => [r.kind, { url: `data:${r.mime};base64,${Buffer.from(r.data).toString('base64')}`, at: r.at }]));
   }
 
   start(token: string) {
@@ -177,6 +219,11 @@ export class DealService {
       this.providers.kyc.matchFace(passportImage, selfieImage),
     ]);
     this.set(d.id, { face_match: faceMatch });
+    const at = new Date().toISOString();
+    for (const [kind, img] of [['passport', passportImage], ['selfie', selfieImage]] as const) {
+      if (img) this.db.prepare('INSERT OR REPLACE INTO kyc_images (deal_id, kind, mime, data, at) VALUES (?, ?, ?, ?, ?)')
+        .run(d.id, kind, imageType(img), img, at);
+    }
     this.log(d.id, 'kyc_checked', { faceMatch, passportImage: !!passportImage, selfieImage: !!selfieImage });
     return { deal: this.byId(d.id), passport, faceMatch };
   }

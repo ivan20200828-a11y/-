@@ -14,7 +14,7 @@ const { app, deals, auth } = buildApp({ db, providers: providersFromEnv(), logge
 if (!auth.hasManagers()) {
   const email = process.env.ADMIN_EMAIL ?? 'manager@demo.ru';
   const password = process.env.ADMIN_PASSWORD ?? 'demo1234';
-  auth.addManager(email, process.env.ADMIN_NAME ?? 'Менеджер', password);
+  auth.addManager(email, process.env.ADMIN_NAME ?? 'Менеджер', password, true);
   app.log.info(`Создан менеджер ${email}`);
 }
 if (process.env.SEED !== 'off') {

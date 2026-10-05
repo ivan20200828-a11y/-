@@ -1,28 +1,61 @@
 import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { rub } from '@/lib/money';
-import { authApi } from '@/api';
+import { authApi, type Manager } from '@/api';
 import { days, dealProgress } from '@/lib/schedule';
 import { STAGE_LABEL, useDealList } from '@/state/deals';
-import type { Stage } from '@/state/types';
-import { Button, Card, H2, Hint, KV, Label, Loading, Pill, Progress, Screen, Txt } from '@/ui/kit';
+import type { Deal, Stage } from '@/state/types';
+import { Button, Card, Field, H2, Hint, KV, Label, Loading, Pill, Progress, Row, Screen, Tabs, Txt } from '@/ui/kit';
 
-const pillKind = (s: Stage) => (s === 'active' ? 'ok' : s === 'sign' || s === 'pay' ? 'warn' : 'wait');
+const pillKind = (s: Stage) => (s === 'active' ? 'ok' : s === 'cancelled' ? 'bad' : s === 'sign' || s === 'pay' ? 'warn' : 'wait');
+
+type Filter = 'all' | 'onboarding' | 'active' | 'overdue' | 'cancelled';
+const FILTERS: [Filter, string][] = [['all', 'Все'], ['onboarding', 'Оформление'], ['active', 'Платежи'], ['overdue', 'Просрочка'], ['cancelled', 'Отменённые']];
+
+const matchesFilter = (d: Deal, f: Filter) =>
+  f === 'all' ? true
+  : f === 'overdue' ? !!dealProgress(d).overdue
+  : f === 'active' ? d.stage === 'active'
+  : f === 'cancelled' ? d.stage === 'cancelled'
+  : d.stage !== 'active' && d.stage !== 'cancelled';
+
+/** Search by client name, phone (digits only are enough), deal number or subject. */
+const matchesSearch = (d: Deal, q: string) => {
+  const text = q.trim().toLowerCase();
+  if (!text) return true;
+  const digits = text.replace(/\D/g, '');
+  return [d.clientName, d.no, d.subject].some((v) => v.toLowerCase().includes(text))
+    || (digits.length >= 3 && d.phone.replace(/\D/g, '').includes(digits));
+};
 
 export default function Deals() {
   const { deals, error } = useDealList();
+  const [filter, setFilter] = useState<Filter>('all');
+  const [search, setSearch] = useState('');
+  const [me, setMe] = useState<Manager | null>(null);
+  useEffect(() => {
+    authApi.me().then(setMe, () => {});
+  }, []);
+  const shown = deals ? overdueFirst(deals).filter((d) => matchesFilter(d, filter) && matchesSearch(d, search)) : null;
   return (
     <Screen wide>
       <Card>
         <H2>Сделки</H2>
         <Hint>Статус меняется, когда клиент проходит этапы. Сделка демо-клиента обновляется, пока вы проходите оформление в разделе «Я клиент».</Hint>
         <Button title="Новая сделка" onPress={() => router.push('/manager/new')} />
-        <Button ghost title="Выйти" onPress={async () => { await authApi.logout(); router.replace('/manager/login'); }} />
+        <Row>
+          {me?.admin && <Button ghost title="Сотрудники" onPress={() => router.push('/manager/team')} />}
+          <Button ghost title="Выйти" onPress={async () => { await authApi.logout(); router.replace('/manager/login'); }} />
+        </Row>
       </Card>
+      <Field label="Поиск" value={search} onChangeText={setSearch} placeholder="ФИО, телефон, номер сделки или предмет" />
+      <Tabs items={FILTERS} value={filter} onChange={setFilter} />
       {!deals && <Loading error={error} />}
+      {shown && shown.length === 0 && <Hint>Сделок не найдено. Измените поиск или выберите другой фильтр.</Hint>}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-        {deals && overdueFirst(deals).map((d) => {
+        {shown?.map((d) => {
           const { sum, overdue } = dealProgress(d);
           return (
             <Pressable key={d.id} accessibilityRole="button" onPress={() => router.push(`/manager/${d.id}`)} style={{ flexGrow: 1, flexBasis: 260 }}>

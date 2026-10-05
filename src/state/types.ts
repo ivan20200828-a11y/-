@@ -7,7 +7,7 @@ export type Passport = {
   address: string;
 };
 
-export type Stage = 'invited' | 'phone' | 'documents' | 'contract' | 'sign' | 'pay' | 'active';
+export type Stage = 'invited' | 'phone' | 'documents' | 'contract' | 'sign' | 'pay' | 'active' | 'cancelled';
 
 export type PayMethod = 'sbp' | 'card';
 

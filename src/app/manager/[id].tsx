@@ -8,6 +8,7 @@ import { days, dealProgress } from '@/lib/schedule';
 import { STAGE_LABEL, useDealDetails } from '@/state/deals';
 import { downAmount } from '@/state/types';
 import { ContractText, ScheduleTable } from '@/ui/contract';
+import { CancelDeal, InviteCard, KycPhotos } from '@/ui/manager-actions';
 import { Button, Card, H1, H2, Hint, KV, Label, Loading, Pill, Progress, Screen, Txt } from '@/ui/kit';
 
 const EVENT_LABEL: Record<string, string> = {
@@ -29,21 +30,27 @@ const EVENT_LABEL: Record<string, string> = {
   esign_agreement_accepted: 'Принято соглашение о простой электронной подписи',
   reminder_soon: 'Отправлено напоминание о платеже',
   reminder_overdue: 'Отправлено напоминание о просрочке',
+  invite_resent: 'Приглашение отправлено повторно',
+  cancelled: 'Сделка отменена',
 };
+
+/** "· Анна" when a manager did it. */
+const byWhom = (data: unknown) => (data && typeof data === 'object' && 'by' in data ? ` · ${String((data as { by: string }).by)}` : '');
 
 const time = (d: Date) => `${formatDate(d)} ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
 
 export default function DealDetails() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { deal, events, error } = useDealDetails(id);
+  const { deal, events, inviteUrl, error, reload } = useDealDetails(id);
   if (!deal || !events) return <Screen><Loading error={error} /></Screen>;
   const { sum, overdue } = dealProgress(deal);
+  const cancelReason = (events.find((e) => e.type === 'cancelled')?.data as { reason?: string } | undefined)?.reason;
   return (
     <Screen>
       <Card>
         <Label>№ {deal.no} · создана {formatDate(deal.createdAt)}</Label>
         <H1>{deal.clientName}</H1>
-        <Pill kind={deal.stage === 'active' ? 'ok' : 'wait'}>{STAGE_LABEL[deal.stage]}</Pill>
+        <Pill kind={deal.stage === 'active' ? 'ok' : deal.stage === 'cancelled' ? 'bad' : 'wait'}>{STAGE_LABEL[deal.stage]}</Pill>
         {overdue && <Pill kind="bad">Просрочено {overdue.count === 1 ? '1 платёж' : `${overdue.count} платежа`} на {rub(overdue.amount)}, {days(overdue.days)}</Pill>}
         <KV rows={[
           ['Предмет', deal.subject],
@@ -56,15 +63,17 @@ export default function DealDetails() {
           ['Оплачено', `${rub(sum)} из ${rub(deal.total)}`],
         ]} />
         <Progress value={sum / deal.total} />
-        <Hint>Код приглашения клиента: {deal.token}</Hint>
+        {cancelReason && <Hint>Причина отмены: {cancelReason}</Hint>}
         <Button ghost title="Открыть сделку глазами клиента" onPress={() => router.push(`/client?t=${encodeURIComponent(deal.token)}`)} />
       </Card>
+      <Card><InviteCard deal={deal} inviteUrl={inviteUrl ?? null} /></Card>
+      {deal.faceMatch != null && <Card><KycPhotos deal={deal} /></Card>}
       <Card>
         <H2>История</H2>
         {events.map((e, i) => (
           <View key={i} style={{ gap: 2 }}>
             <Hint>{time(e.at)}</Hint>
-            <Txt>{EVENT_LABEL[e.type] ?? e.type}
+            <Txt>{EVENT_LABEL[e.type] ?? e.type}{byWhom(e.data)}
               {(e.type === 'paid' || e.type === 'payment_duplicate') && typeof e.data === 'object' && e.data && 'amount' in e.data ? `: ${rub(Number((e.data as { amount: number }).amount))}` : ''}</Txt>
           </View>
         ))}
@@ -79,6 +88,7 @@ export default function DealDetails() {
         <Button ghost title="Скачать договор в PDF" onPress={() => Linking.openURL(contractPdfUrl(deal.token))} />
         <ContractText deal={deal} />
       </Card>
+      {deal.stage !== 'cancelled' && !deal.downPayment && <Card><CancelDeal deal={deal} onDone={reload} /></Card>}
     </Screen>
   );
 }
