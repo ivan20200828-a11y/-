@@ -1,26 +1,35 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { View } from 'react-native';
 
+import { esignAgreement, type EsignAgreement } from '@/api';
 import { withClientDeal } from '@/state/client-gate';
 import { useClient } from '@/state/deals';
 import { ContractText } from '@/ui/contract';
-import { Button, Card, ErrorText, H2, Hint, Screen, Stepper } from '@/ui/kit';
-import { useColors } from '@/ui/theme';
+import { Button, Card, Checkbox, ErrorText, H2, Hint, Screen, Stepper, Txt } from '@/ui/kit';
 
 export default withClientDeal(function Contract({ deal }) {
   const { step } = useClient();
   const [agreed, setAgreed] = useState(false);
+  const [esignAgreed, setEsignAgreed] = useState(false);
+  const [agreement, setAgreement] = useState<EsignAgreement | null>(null);
+  const [showAgreement, setShowAgreement] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    esignAgreement().then(setAgreement, (e) => setError((e as Error).message));
+  }, []);
+
   const next = async () => {
+    if (!agreement) return;
     setBusy(true);
-    const err = await step('contract/accept');
+    const err = await step('contract/accept', { esignEdition: agreement.edition });
     setBusy(false);
     if (err) return setError(err);
     router.push('/client/sign');
   };
-  const c = useColors();
+
   return (
     <Screen>
       <Stepper current="contract" />
@@ -28,15 +37,20 @@ export default withClientDeal(function Contract({ deal }) {
         <H2>Договор</H2>
         <Hint>Договор составлен из ваших данных. Прочитайте его целиком.</Hint>
         <ContractText deal={deal} />
-        <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: agreed }} onPress={() => setAgreed(!agreed)}
-          style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
-          <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: agreed ? c.accent : c.line,
-            backgroundColor: agreed ? c.accent : 'transparent', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
-            {agreed && <Text style={{ color: c.accentFg, fontSize: 13, fontWeight: '700' }}>✓</Text>}
+      </Card>
+      <Card>
+        <H2>Подпись кодом из SMS</H2>
+        <Hint>Договор подписывается кодом, который придёт на ваш телефон. Для этого нужно принять соглашение о простой электронной подписи.</Hint>
+        <Button ghost title={showAgreement ? 'Скрыть соглашение' : 'Прочитать соглашение'} onPress={() => setShowAgreement(!showAgreement)} />
+        {showAgreement && agreement && (
+          <View style={{ gap: 8 }}>
+            <Txt style={{ fontWeight: '600' }}>{agreement.title}</Txt>
+            {agreement.text.map((line) => <Hint key={line}>{line}</Hint>)}
           </View>
-          <Text style={{ color: c.fg, fontSize: 15, flex: 1 }}>Я прочитал договор и согласен с условиями и графиком платежей</Text>
-        </Pressable>
-        <Button title="Перейти к подписанию" disabled={!agreed} loading={busy} onPress={next} />
+        )}
+        <Checkbox checked={agreed} onChange={setAgreed}>Я прочитал договор и согласен с условиями и графиком платежей</Checkbox>
+        <Checkbox checked={esignAgreed} onChange={setEsignAgreed}>Я принимаю соглашение об использовании простой электронной подписи</Checkbox>
+        <Button title="Перейти к подписанию" disabled={!agreed || !esignAgreed || !agreement} loading={busy} onPress={next} />
         {!!error && <ErrorText>{error}</ErrorText>}
       </Card>
     </Screen>

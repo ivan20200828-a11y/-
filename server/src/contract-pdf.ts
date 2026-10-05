@@ -4,6 +4,8 @@ import path from 'node:path';
 import PDFDocument from 'pdfkit';
 
 import { downAmount, installmentAmounts } from './deals.ts';
+import { ESIGN_AGREEMENT } from './esign.ts';
+import { addMonths } from './schedule.ts';
 import type { Deal } from './types.ts';
 
 const require = createRequire(import.meta.url);
@@ -12,11 +14,6 @@ const FONT_DIR = path.join(path.dirname(require.resolve('dejavu-fonts-ttf/packag
 const rub = (n: number) => `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(n))} ₽`;
 const date = (d: Date) => d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Moscow' });
 const dateTime = (d: Date) => `${date(d)} ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })} МСК`;
-const addMonths = (d: Date, m: number) => {
-  const x = new Date(d);
-  x.setMonth(x.getMonth() + m);
-  return x;
-};
 
 /** The contract as a PDF, with the payment schedule and, once signed, the electronic signature details. */
 export function contractPdf(deal: Deal): Promise<Buffer> {
@@ -47,7 +44,7 @@ export function contractPdf(deal: Deal): Promise<Buffer> {
   para('1. Предмет.', `Продавец передаёт в собственность Покупателя: ${deal.subject.replace(/\.$/, '')}.`);
   para('2. Цена.', `Цена составляет ${rub(deal.total)}. Первоначальный взнос ${rub(down)} оплачивается в течение 3 рабочих дней после подписания. ` +
     `Остаток ${rub(deal.total - down)} оплачивается в рассрочку на ${deal.term} мес. согласно Приложению № 1, без процентов.`);
-  para('3. Подписание.', 'Стороны признают простую электронную подпись (код из SMS) равнозначной собственноручной в соответствии с Федеральным законом № 63-ФЗ «Об электронной подписи».');
+  para('3. Подписание.', 'Договор подписывается простой электронной подписью (кодом из SMS) в порядке, установленном Соглашением об использовании простой электронной подписи (Приложение № 2). Стороны признают такую подпись равнозначной собственноручной в соответствии с Федеральным законом № 63-ФЗ «Об электронной подписи».');
   para('4. Просрочка.', 'За просрочку платежа начисляется неустойка 0,1% от суммы просроченного платежа за каждый день.');
 
   doc.moveDown(0.4).font('bold').text('Приложение № 1. График платежей').moveDown(0.4).font('regular');
@@ -73,9 +70,16 @@ export function contractPdf(deal: Deal): Promise<Buffer> {
       .text(`Подписант: ${p?.fio ?? deal.clientName}, телефон ${deal.phone}`)
       .text(`Дата и время подписания: ${dateTime(signedAt)}`)
       .text(`Идентификатор подписи: ${deal.signature.id}`);
+    if (deal.esignAgreement) {
+      doc.text(`Соглашение об использовании простой электронной подписи (ред. ${deal.esignAgreement.edition}) принято ${dateTime(new Date(deal.esignAgreement.at))}`);
+    }
   } else {
     doc.text('Проект договора. Не подписан.');
   }
+
+  doc.addPage().font('bold').fontSize(12).text(`Приложение № 2. ${ESIGN_AGREEMENT.title}`, { align: 'left' }).moveDown(0.5)
+    .font('regular').fontSize(10);
+  for (const line of ESIGN_AGREEMENT.text) doc.text(line, { align: 'left' }).moveDown(0.4);
 
   doc.end();
   return done;

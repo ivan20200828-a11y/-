@@ -18,11 +18,26 @@ type DealLike = {
   signature?: { at: Date }; downPayment?: unknown; installmentsPaid: { n: number }[];
 };
 
-/** How much of a deal is paid: the down payment (if made) plus every paid installment. */
-export function dealProgress(deal: DealLike) {
+const DAY = 86400000;
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+/** How much of a deal is paid, the next payment, and the installments past their date and still unpaid. */
+export function dealProgress(deal: DealLike, now = new Date()) {
   const down = Math.round((deal.total * deal.downPct) / 100);
   const rows = buildSchedule(deal.total, down, deal.term, deal.signature?.at ?? new Date());
   const paid = new Set(deal.installmentsPaid.map((p) => p.n));
   const sum = (deal.downPayment ? down : 0) + rows.filter((r) => paid.has(r.n)).reduce((a, r) => a + r.amount, 0);
-  return { rows, sum, next: rows.find((r) => !paid.has(r.n)) };
+  const today = startOfDay(now);
+  const late = deal.downPayment ? rows.filter((r) => !paid.has(r.n) && startOfDay(r.date) < today) : [];
+  const overdue = late.length
+    ? { count: late.length, amount: late.reduce((a, r) => a + r.amount, 0), days: Math.round((+today - +startOfDay(late[0].date)) / DAY) }
+    : null;
+  return { rows, sum, next: rows.find((r) => !paid.has(r.n)), paid, overdue, isLate: (n: number) => late.some((r) => r.n === n) };
 }
+
+/** "3 дня", "21 день", "5 дней" */
+export const days = (n: number) => {
+  const m10 = n % 10, m100 = n % 100;
+  const w = m10 === 1 && m100 !== 11 ? 'день' : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? 'дня' : 'дней';
+  return `${n} ${w}`;
+};

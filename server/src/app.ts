@@ -1,17 +1,25 @@
+import path from 'node:path';
+
+import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { AuthService, type Manager } from './auth.ts';
 import { contractPdf } from './contract-pdf.ts';
 import type { DB } from './db.ts';
+import { ESIGN_AGREEMENT } from './esign.ts';
 import { ApiError, DealService, type NewDeal } from './deals.ts';
 import { TEST_MODE, type Providers } from './providers.ts';
 import type { Passport, PayMethod } from './types.ts';
 
-export type AppOptions = { db: DB; providers: Providers; logger?: boolean; appUrl?: string };
+export type AppOptions = {
+  db: DB; providers: Providers; logger?: boolean; appUrl?: string;
+  /** Folder with the web build of the app (`npx expo export -p web`); served from the same address as the API. */
+  webDir?: string;
+};
 
 const image = (b64: unknown) => (typeof b64 === 'string' && b64.length > 0 ? Buffer.from(b64.replace(/^data:[^,]+,/, ''), 'base64') : null);
 
-export function buildApp({ db, providers, logger = false, appUrl }: AppOptions): { app: FastifyInstance; deals: DealService; auth: AuthService } {
+export function buildApp({ db, providers, logger = false, appUrl, webDir }: AppOptions): { app: FastifyInstance; deals: DealService; auth: AuthService } {
   const app = Fastify({ logger, bodyLimit: 20 * 1024 * 1024 });
   const deals = new DealService(db, providers, { appUrl });
   const auth = new AuthService(db);
@@ -81,7 +89,9 @@ export function buildApp({ db, providers, logger = false, appUrl }: AppOptions):
   });
   app.post('/api/client/:token/passport', async (req) =>
     ({ deal: deals.confirmPassport((req.params as P).token, body<{ passport: Passport }>(req).passport) }));
-  app.post('/api/client/:token/contract/accept', async (req) => ({ deal: deals.acceptContract((req.params as P).token) }));
+  app.get('/api/esign-agreement', async () => ESIGN_AGREEMENT);
+  app.post('/api/client/:token/contract/accept', async (req) =>
+    ({ deal: deals.acceptContract((req.params as P).token, Number(body<{ esignEdition?: number }>(req).esignEdition)) }));
   app.post('/api/client/:token/sign/send', async (req) => ({ deal: await deals.sendSignCode((req.params as P).token) }));
   app.post('/api/client/:token/sign/verify', async (req) =>
     ({ deal: deals.verifySign((req.params as P).token, body<{ code: string }>(req).code) }));
@@ -99,6 +109,15 @@ export function buildApp({ db, providers, logger = false, appUrl }: AppOptions):
     if (!deals.handleNotification(req.body)) return reply.code(403).send({ error: 'Неверная подпись' });
     return reply.type('text/plain').send(providers.payments.notificationAck);
   });
+
+  if (webDir) {
+    app.register(fastifyStatic, { root: path.resolve(webDir), wildcard: false });
+    // The web app routes on its own: any other page address gets index.html.
+    app.setNotFoundHandler((req, reply) => {
+      if (req.method !== 'GET' || req.url.startsWith('/api/')) return reply.code(404).send({ error: 'Не найдено' });
+      return reply.sendFile('index.html');
+    });
+  }
 
   return { app, deals, auth };
 }

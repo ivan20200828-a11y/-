@@ -73,7 +73,9 @@ test('a deal goes from invitation to the first installment', async () => {
   assert.equal(confirmed.body.deal.stage, 'contract');
   assert.equal(confirmed.body.deal.clientName, kyc.body.passport.fio);
 
-  await post(`${c}/contract/accept`);
+  assert.equal((await post(`${c}/contract/accept`)).status, 400, 'the e-signature agreement must be accepted');
+  const accepted = await post(`${c}/contract/accept`, { esignEdition: 1 });
+  assert.equal(accepted.body.deal.esignAgreement.edition, 1);
   await post(`${c}/sign/send`);
   const signed = await post(`${c}/sign/verify`, { code: '1234' });
   assert.equal(signed.body.deal.stage, 'pay');
@@ -88,7 +90,7 @@ test('a deal goes from invitation to the first installment', async () => {
   const details = (await app.inject({ method: 'GET', url: `/api/deals/${id}`, headers: auth })).json();
   assert.deepEqual(
     details.events.map((e: { type: string }) => e.type),
-    ['created', 'started', 'phone_code_sent', 'phone_verified', 'kyc_checked', 'passport_confirmed', 'contract_accepted', 'sign_code_sent', 'signed', 'payment_started', 'paid', 'payment_started', 'paid'],
+    ['created', 'started', 'phone_code_sent', 'phone_verified', 'kyc_checked', 'passport_confirmed', 'esign_agreement_accepted', 'contract_accepted', 'sign_code_sent', 'signed', 'payment_started', 'paid', 'payment_started', 'paid'],
   );
 });
 
@@ -118,4 +120,15 @@ test('the contract downloads as a PDF', async () => {
   assert.equal(r.statusCode, 200);
   assert.equal(r.headers['content-type'], 'application/pdf');
   assert.equal(r.rawPayload.subarray(0, 5).toString(), '%PDF-');
+});
+
+test('the server can serve the web app with page addresses falling back to it', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const dir = mkdtempSync('/tmp/web-');
+  writeFileSync(`${dir}/index.html`, '<div id="root"></div>');
+  const { app } = buildApp({ db: openDb(':memory:'), providers: testProviders, webDir: dir });
+  assert.match((await app.inject({ url: '/client/cabinet' })).body, /root/);
+  assert.match((await app.inject({ url: '/' })).body, /root/);
+  assert.equal((await app.inject({ url: '/api/nope' })).statusCode, 404);
+  assert.equal((await app.inject({ url: '/api/health' })).statusCode, 200);
 });

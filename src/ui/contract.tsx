@@ -1,6 +1,6 @@
 import { Text, View } from 'react-native';
 
-import { buildSchedule } from '@/lib/schedule';
+import { buildSchedule, dealProgress } from '@/lib/schedule';
 import { formatDate, rub } from '@/lib/money';
 import { downAmount, type Deal } from '@/state/types';
 
@@ -10,8 +10,7 @@ import { useColors } from './theme';
 export function ScheduleTable({ deal, withStatus }: { deal: Deal; withStatus?: boolean }) {
   const c = useColors();
   const rows = buildSchedule(deal.total, downAmount(deal), deal.term, deal.signature?.at ?? new Date());
-  const paid = new Set(deal.installmentsPaid.map((p) => p.n));
-  const next = rows.find((r) => !paid.has(r.n));
+  const { paid, next, isLate } = dealProgress(deal);
   const cell = { color: c.fg, fontSize: 14, fontVariant: ['tabular-nums' as const] };
   return (
     <View>
@@ -34,7 +33,7 @@ export function ScheduleTable({ deal, withStatus }: { deal: Deal; withStatus?: b
           <Text style={[cell, { flex: 1, textAlign: 'right' }]}>{rub(r.amount)}</Text>
           {withStatus && (
             <View style={{ width: 96 }}>
-              {paid.has(r.n) ? <Pill kind="ok">Оплачен</Pill> : r === next && deal.downPayment ? <Pill kind="acc">Следующий</Pill> : <Pill kind="wait">Ожидается</Pill>}
+              {paid.has(r.n) ? <Pill kind="ok">Оплачен</Pill> : isLate(r.n) ? <Pill kind="bad">Просрочен</Pill> : r.n === next?.n && deal.downPayment ? <Pill kind="acc">Следующий</Pill> : <Pill kind="wait">Ожидается</Pill>}
             </View>
           )}
         </View>
@@ -63,7 +62,7 @@ export function ContractText({ deal }: { deal: Deal }) {
         <B>2. Цена.</B> Цена составляет {rub(deal.total)}. Первоначальный взнос {rub(down)} оплачивается в течение 3 рабочих дней после подписания.
         Остаток {rub(deal.total - down)} оплачивается в рассрочку на {deal.term} мес. согласно Приложению № 1, без процентов.
       </P>
-      <P><B>3. Подписание.</B> Стороны признают простую электронную подпись (код из SMS) равнозначной собственноручной в соответствии с Федеральным законом № 63-ФЗ «Об электронной подписи».</P>
+      <P><B>3. Подписание.</B> Договор подписывается простой электронной подписью (кодом из SMS) в порядке, установленном Соглашением об использовании простой электронной подписи (Приложение № 2). Стороны признают такую подпись равнозначной собственноручной в соответствии с Федеральным законом № 63-ФЗ «Об электронной подписи».</P>
       <P><B>4. Просрочка.</B> За просрочку платежа начисляется неустойка 0,1% от суммы просроченного платежа за каждый день.</P>
       <P><B>Приложение № 1. График платежей</B></P>
       <ScheduleTable deal={deal} />

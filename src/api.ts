@@ -7,8 +7,9 @@ export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000
 /** The server runs SMS, payments and identity checks in test mode; the code is always 1234. */
 export const TEST_MODE = true;
 
-type WireDeal = Omit<Deal, 'createdAt' | 'signature' | 'downPayment' | 'installmentsPaid'> & {
+type WireDeal = Omit<Deal, 'createdAt' | 'signature' | 'downPayment' | 'esignAgreement' | 'installmentsPaid'> & {
   createdAt: string;
+  esignAgreement?: { edition: number; at: string };
   signature?: { id: string; at: string };
   downPayment?: { at: string; method: PayMethod };
   installmentsPaid: { n: number; at: string }[];
@@ -32,6 +33,7 @@ function hydrate(d: WireDeal): Deal {
     createdAt: new Date(d.createdAt),
     signature: d.signature && { ...d.signature, at: new Date(d.signature.at) },
     downPayment: d.downPayment && { ...d.downPayment, at: new Date(d.downPayment.at) },
+    esignAgreement: d.esignAgreement && { ...d.esignAgreement, at: new Date(d.esignAgreement.at) },
     installmentsPaid: d.installmentsPaid.map((p) => ({ ...p, at: new Date(p.at) })),
   };
 }
@@ -80,6 +82,9 @@ export const managerApi = {
 };
 
 export type Payment = { id: string; status: 'pending' | 'paid' | 'failed'; url?: string };
+
+export type EsignAgreement = { edition: number; title: string; text: string[] };
+export const esignAgreement = () => call<EsignAgreement>('/api/esign-agreement');
 
 export const contractPdfUrl = (token: string) => `${API_URL}/api/client/${encodeURIComponent(token)}/contract.pdf`;
 

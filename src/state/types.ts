@@ -29,6 +29,7 @@ export type Deal = {
   faceMatch?: number;
   signature?: { id: string; at: Date };
   downPayment?: { at: Date; method: PayMethod };
+  esignAgreement?: { edition: number; at: Date };
   installmentsPaid: { n: number; at: Date }[];
 };
 

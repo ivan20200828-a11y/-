@@ -8,7 +8,7 @@ const db = openDb(process.env.DB_FILE ?? 'sdelka.db');
 
 if (!TEST_MODE) throw new Error('Реальные SMS и проверка паспорта ещё не подключены: запускайте с PROVIDERS_MODE=test');
 
-const { app, deals, auth } = buildApp({ db, providers: providersFromEnv(), logger: true, appUrl: process.env.APP_URL });
+const { app, deals, auth } = buildApp({ db, providers: providersFromEnv(), logger: true, appUrl: process.env.APP_URL, webDir: process.env.WEB_DIR });
 
 // First start: create the first manager account from the environment, or a demo one.
 if (!auth.hasManagers()) {
@@ -22,3 +22,11 @@ if (process.env.SEED !== 'off') {
   await advanceDemo(deals);
 }
 await app.listen({ port, host: '0.0.0.0' });
+
+// Payment reminders by SMS: on start and then every hour.
+const remind = () => deals.sendReminders().then(
+  (sent) => sent.length && app.log.info(`Напоминаний о платежах отправлено: ${sent.length}`),
+  (e) => app.log.error(e),
+);
+await remind();
+setInterval(remind, 60 * 60 * 1000).unref();

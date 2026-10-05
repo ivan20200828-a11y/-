@@ -3,19 +3,19 @@ import { Linking } from 'react-native';
 
 import { contractPdfUrl } from '@/api';
 import { formatDate, rub } from '@/lib/money';
-import { dealProgress } from '@/lib/schedule';
+import { days, dealProgress } from '@/lib/schedule';
 import { withClientDeal } from '@/state/client-gate';
 import { usePayment } from '@/state/payment';
 import { downAmount } from '@/state/types';
 import { ContractText, ScheduleTable } from '@/ui/contract';
 import { PaymentWaiting } from '@/ui/payment';
-import { Big, Button, Card, ErrorText, H1, H2, KV, Label, Progress, Screen, Stamp, Tabs, Txt } from '@/ui/kit';
+import { Big, Button, Card, ErrorText, H1, H2, KV, Label, Pill, Progress, Screen, Stamp, Tabs, Txt } from '@/ui/kit';
 
 type Tab = 'sched' | 'contract' | 'hist';
 
 export default withClientDeal(function Cabinet({ deal }) {
   const [tab, setTab] = useState<Tab>('sched');
-  const { rows, sum, next } = dealProgress(deal);
+  const { rows, sum, next, overdue } = dealProgress(deal);
   const payment = usePayment(() => setTab('hist'));
 
   return (
@@ -28,9 +28,14 @@ export default withClientDeal(function Cabinet({ deal }) {
       </Card>
       {next ? (
         <Card>
-          <Label>Следующий платёж</Label>
+          <Label>{overdue ? 'Просроченный платёж' : 'Следующий платёж'}</Label>
           <Big>{rub(next.amount)}</Big>
           <Txt>до {formatDate(next.date)} · платёж {next.n} из {deal.term}</Txt>
+          {overdue && (
+            <Pill kind="bad">
+              {overdue.count > 1 ? `Просрочено платежей: ${overdue.count} на ${rub(overdue.amount)}` : `Просрочен на ${days(overdue.days)}`}
+            </Pill>
+          )}
           {payment.waiting ? (
             <PaymentWaiting onReopen={payment.reopen} onCancel={payment.cancel} />
           ) : (

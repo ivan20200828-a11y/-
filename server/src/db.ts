@@ -24,7 +24,8 @@ export function openDb(file: string): DB {
       passport TEXT,
       face_match INTEGER,
       signature TEXT,
-      down_payment TEXT
+      down_payment TEXT,
+      esign_agreement TEXT
     );
     CREATE TABLE IF NOT EXISTS payments (
       id TEXT PRIMARY KEY,
@@ -64,5 +65,9 @@ export function openDb(file: string): DB {
       data TEXT
     );
   `);
+  // Columns added after the first release: older database files get them on start.
+  const has = (table: string, col: string) =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === col);
+  if (!has('deals', 'esign_agreement')) db.exec('ALTER TABLE deals ADD COLUMN esign_agreement TEXT');
   return db;
 }

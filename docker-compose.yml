@@ -1,0 +1,17 @@
+# Запуск на сервере: docker compose up -d --build
+# Перед первым запуском задайте пароль первого менеджера в .env (ADMIN_EMAIL, ADMIN_PASSWORD).
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SEED: ${SEED:-off}
+    volumes:
+      - data:/data
+volumes:
+  data:

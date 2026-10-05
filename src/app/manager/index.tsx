@@ -3,7 +3,7 @@ import { Pressable, View } from 'react-native';
 
 import { rub } from '@/lib/money';
 import { authApi } from '@/api';
-import { dealProgress } from '@/lib/schedule';
+import { days, dealProgress } from '@/lib/schedule';
 import { STAGE_LABEL, useDealList } from '@/state/deals';
 import type { Stage } from '@/state/types';
 import { Button, Card, H2, Hint, KV, Label, Loading, Pill, Progress, Screen, Txt } from '@/ui/kit';
@@ -22,14 +22,16 @@ export default function Deals() {
       </Card>
       {!deals && <Loading error={error} />}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-        {deals?.map((d) => {
-          const { sum } = dealProgress(d);
+        {deals && overdueFirst(deals).map((d) => {
+          const { sum, overdue } = dealProgress(d);
           return (
             <Pressable key={d.id} accessibilityRole="button" onPress={() => router.push(`/manager/${d.id}`)} style={{ flexGrow: 1, flexBasis: 260 }}>
               <Card>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                   <Label>№ {d.no}{d.token === 'demo' ? ' · демо-клиент' : ''}</Label>
-                  <Pill kind={pillKind(d.stage)}>{STAGE_LABEL[d.stage]}</Pill>
+                  {overdue
+                    ? <Pill kind="bad">Просрочка {days(overdue.days)}</Pill>
+                    : <Pill kind={pillKind(d.stage)}>{STAGE_LABEL[d.stage]}</Pill>}
                 </View>
                 <Txt style={{ fontWeight: '600' }}>{d.clientName}</Txt>
                 <Hint>{d.subject}</Hint>
@@ -42,4 +44,10 @@ export default function Deals() {
       </View>
     </Screen>
   );
+}
+
+/** Deals with missed payments go first, the longest overdue on top; the rest keep the server's order. */
+function overdueFirst<D extends Parameters<typeof dealProgress>[0]>(deals: D[]) {
+  const late = (d: D) => dealProgress(d).overdue?.days ?? -1;
+  return deals.map((d, i) => ({ d, i, late: late(d) })).sort((a, b) => b.late - a.late || a.i - b.i).map((x) => x.d);
 }

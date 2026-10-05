@@ -1,6 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
 import type { DB } from './db.ts';
+import { ESIGN_AGREEMENT } from './esign.ts';
+import { addMonths } from './schedule.ts';
 import type { PaymentStatus, Providers } from './providers.ts';
 import type { Deal, DealEvent, Passport, PayMethod, Stage } from './types.ts';
 
@@ -13,6 +15,10 @@ export class ApiError extends Error {
 }
 
 const CODE_TTL_MS = 5 * 60 * 1000;
+const DAY = 86400000;
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const rubText = (n: number) => `${n.toLocaleString('ru-RU')} ₽`;
+const dayText = (d: Date) => d.toLocaleDateString('ru-RU');
 const MAX_CODE_ATTEMPTS = 5;
 const SELLER = { seller: 'ООО «Альфа-Сделка»', city: 'Москва' };
 
@@ -53,7 +59,7 @@ export class DealService {
       subject: r.subject as string, total: r.total as number, downPct: r.down_pct as number, term: r.term as number,
       clientName: r.client_name as string, phone: r.phone as string, stage: r.stage as Stage, createdAt: r.created_at as string,
       passport: json<Passport>(r.passport), faceMatch: (r.face_match as number | null) ?? undefined,
-      signature: json(r.signature), downPayment: json(r.down_payment),
+      signature: json(r.signature), downPayment: json(r.down_payment), esignAgreement: json(r.esign_agreement),
       installmentsPaid: paid.map((p) => ({ n: p.n, at: p.at })),
     };
   }
@@ -188,10 +194,16 @@ export class DealService {
     return this.byId(d.id);
   }
 
-  acceptContract(token: string) {
+  /** The client has read the contract and accepted the agreement on the simple electronic signature. */
+  acceptContract(token: string, esignEdition: number) {
     const d = this.byToken(token);
     this.requireStage(d, 'contract');
-    this.set(d.id, { stage: 'sign' });
+    if (esignEdition !== ESIGN_AGREEMENT.edition) {
+      throw new ApiError(400, 'Примите соглашение о простой электронной подписи, чтобы подписать договор');
+    }
+    const esign = { edition: ESIGN_AGREEMENT.edition, at: new Date().toISOString() };
+    this.set(d.id, { stage: 'sign', esign_agreement: JSON.stringify(esign) });
+    this.log(d.id, 'esign_agreement_accepted', esign);
     this.log(d.id, 'contract_accepted');
     return this.byId(d.id);
   }
@@ -212,6 +224,33 @@ export class DealService {
     this.set(d.id, { signature: JSON.stringify(signature), stage: 'pay' });
     this.log(d.id, 'signed', { ...signature, phone: d.phone });
     return this.byId(d.id);
+  }
+
+  /** SMS reminders: three days before an installment is due, and once it is missed. Each one goes out once. */
+  async sendReminders(now = new Date()) {
+    const sent: { dealId: string; type: string; n: number }[] = [];
+    for (const d of this.list()) {
+      if (d.stage !== 'active' || !d.signature) continue;
+      const n = d.installmentsPaid.length + 1;
+      if (n > d.term) continue;
+      const due = addMonths(new Date(d.signature.at), n);
+      const daysLeft = Math.round((+startOfDay(due) - +startOfDay(now)) / DAY);
+      const type = daysLeft < 0 ? 'reminder_overdue' : daysLeft <= 3 ? 'reminder_soon' : null;
+      if (!type) continue;
+      const already = this.db
+        .prepare(`SELECT 1 FROM events WHERE deal_id = ? AND type = ? AND json_extract(data, '$.n') = ?`)
+        .get(d.id, type, n);
+      if (already) continue;
+      const amount = installmentAmounts(d)[n - 1];
+      const link = this.appUrl ? ` Оплатить: ${this.appUrl}/client?t=${encodeURIComponent(d.token)}` : '';
+      const text = type === 'reminder_soon'
+        ? `${d.seller}: платёж ${n} по договору ${d.no} на ${rubText(amount)} до ${dayText(due)}.${link}`
+        : `${d.seller}: платёж ${n} по договору ${d.no} на ${rubText(amount)} просрочен с ${dayText(due)}. Пожалуйста, оплатите.${link}`;
+      await this.providers.sms.send(d.phone, text);
+      this.log(d.id, type, { n, amount, due: due.toISOString() });
+      sent.push({ dealId: d.id, type, n });
+    }
+    return sent;
   }
 
   /** Starts a payment. The test acquirer confirms at once; a real one returns a link to the bank page or SBP

@@ -4,7 +4,7 @@ import { Linking, View } from 'react-native';
 import { contractPdfUrl } from '@/api';
 
 import { formatDate, rub } from '@/lib/money';
-import { dealProgress } from '@/lib/schedule';
+import { days, dealProgress } from '@/lib/schedule';
 import { STAGE_LABEL, useDealDetails } from '@/state/deals';
 import { downAmount } from '@/state/types';
 import { ContractText, ScheduleTable } from '@/ui/contract';
@@ -26,6 +26,9 @@ const EVENT_LABEL: Record<string, string> = {
   payment_error: 'Банк не ответил на запрос оплаты',
   payment_duplicate: 'Лишний платёж, нужен возврат',
   payment_amount_mismatch: 'Сумма от банка не совпала',
+  esign_agreement_accepted: 'Принято соглашение о простой электронной подписи',
+  reminder_soon: 'Отправлено напоминание о платеже',
+  reminder_overdue: 'Отправлено напоминание о просрочке',
 };
 
 const time = (d: Date) => `${formatDate(d)} ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
@@ -34,13 +37,14 @@ export default function DealDetails() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { deal, events, error } = useDealDetails(id);
   if (!deal || !events) return <Screen><Loading error={error} /></Screen>;
-  const { sum } = dealProgress(deal);
+  const { sum, overdue } = dealProgress(deal);
   return (
     <Screen>
       <Card>
         <Label>№ {deal.no} · создана {formatDate(deal.createdAt)}</Label>
         <H1>{deal.clientName}</H1>
         <Pill kind={deal.stage === 'active' ? 'ok' : 'wait'}>{STAGE_LABEL[deal.stage]}</Pill>
+        {overdue && <Pill kind="bad">Просрочено {overdue.count === 1 ? '1 платёж' : `${overdue.count} платежа`} на {rub(overdue.amount)}, {days(overdue.days)}</Pill>}
         <KV rows={[
           ['Предмет', deal.subject],
           ['Телефон', deal.phone],

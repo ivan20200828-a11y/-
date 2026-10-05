@@ -5,6 +5,7 @@ import { buildApp } from '../src/app.ts';
 import { openDb } from '../src/db.ts';
 import type { DealService } from '../src/deals.ts';
 import { tkassa, tkassaToken } from '../src/payments/tkassa.ts';
+import { ESIGN_AGREEMENT } from '../src/esign.ts';
 import { testProviders } from '../src/providers.ts';
 
 const KEY = 'TestTerminal';
@@ -60,7 +61,7 @@ async function signDeal(svc: DealService, token: string) {
   svc.verifyPhone(token, '1234');
   const { passport } = await svc.recognize(token, null, null);
   svc.confirmPassport(token, passport);
-  svc.acceptContract(token);
+  svc.acceptContract(token, ESIGN_AGREEMENT.edition);
   await svc.sendSignCode(token);
   svc.verifySign(token, '1234');
 }

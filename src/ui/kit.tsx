@@ -113,15 +113,30 @@ export function Row({ children }: { children: ReactNode }) {
   return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>{children}</View>;
 }
 
-type PillKind = 'ok' | 'wait' | 'warn' | 'acc';
+type PillKind = 'ok' | 'wait' | 'warn' | 'acc' | 'bad';
 export function Pill({ kind, children }: { kind: PillKind; children: ReactNode }) {
   const c = useColors();
-  const map = { ok: [c.okSoft, c.ok], wait: [c.sunk, c.muted], warn: [c.warnSoft, c.warn], acc: [c.accentSoft, c.accent] } as const;
+  const map = { ok: [c.okSoft, c.ok], wait: [c.sunk, c.muted], warn: [c.warnSoft, c.warn], acc: [c.accentSoft, c.accent], bad: [c.sealSoft, c.seal] } as const;
   const [bg, fg] = map[kind];
   return (
     <Text style={{ alignSelf: 'flex-start', backgroundColor: bg, color: fg, fontSize: 12, fontWeight: '600', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999, overflow: 'hidden' }}>
       {children}
     </Text>
+  );
+}
+
+/** A checkbox with its label; the whole row is the tap target. */
+export function Checkbox({ checked, onChange, children }: { checked: boolean; onChange: (v: boolean) => void; children: ReactNode }) {
+  const c = useColors();
+  return (
+    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => onChange(!checked)}
+      style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+      <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: checked ? c.accent : c.line,
+        backgroundColor: checked ? c.accent : 'transparent', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+        {checked && <Text style={{ color: c.accentFg, fontSize: 13, fontWeight: '700' }}>✓</Text>}
+      </View>
+      <Text style={{ color: c.fg, fontSize: 15, flex: 1 }}>{children}</Text>
+    </Pressable>
   );
 }
 

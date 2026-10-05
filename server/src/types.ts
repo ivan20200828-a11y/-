@@ -29,6 +29,8 @@ export type Deal = {
   faceMatch?: number;
   signature?: { id: string; at: string };
   downPayment?: { at: string; method: PayMethod };
+  /** Accepted edition of the simple electronic signature agreement. */
+  esignAgreement?: { edition: number; at: string };
   installmentsPaid: { n: number; at: string }[];
 };
 

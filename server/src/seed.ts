@@ -1,4 +1,5 @@
 import { DealService } from './deals.ts';
+import { ESIGN_AGREEMENT } from './esign.ts';
 import { testProviders } from './providers.ts';
 
 const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString();
@@ -28,14 +29,24 @@ export async function advanceDemo(live: DealService) {
     if (upTo === 'documents') return;
     const { passport } = await svc.recognize(token, null, null);
     svc.confirmPassport(token, { ...passport, fio: svc.byToken(token).clientName });
-    svc.acceptContract(token);
+    svc.acceptContract(token, ESIGN_AGREEMENT.edition);
     if (upTo === 'sign') return;
     await svc.sendSignCode(token);
     svc.verifySign(token, '1234');
     await svc.pay(token, 'down', 'sbp');
     for (let i = 0; i < payments; i++) await svc.pay(token, 'next', 'sbp');
   };
+  const fresh = svc.byToken('demo-kovaleva').stage === 'invited';
   await walk('demo-kovaleva', 'active', 2);
+  // Ковалёва signed long ago and missed her third payment, so the manager sees an overdue deal.
+  if (fresh) {
+    const signedAt = daysAgo(100);
+    const signature = { ...svc.byToken('demo-kovaleva').signature!, at: signedAt };
+    svc.db.prepare('UPDATE deals SET signature = ?, down_payment = ? WHERE id = ?')
+      .run(JSON.stringify(signature), JSON.stringify({ at: signedAt, method: 'sbp' }), 'd139');
+    svc.db.prepare(`UPDATE payments SET at = CASE n WHEN 1 THEN ? WHEN 2 THEN ? ELSE at END WHERE deal_id = 'd139'`)
+      .run(daysAgo(70), daysAgo(40));
+  }
   await walk('demo-ibragimov', 'sign');
   await walk('demo-orlova', 'documents');
 }
