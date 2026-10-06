@@ -71,3 +71,33 @@ test('responses carry security headers', async () => {
   assert.equal(r.headers['x-content-type-options'], 'nosniff');
   assert.equal(r.headers['x-frame-options'], 'DENY');
 });
+
+test('encoded addresses do not slip past the limits', async () => {
+  const { app } = await setup();
+  for (let i = 0; i < 20; i++) await app.inject({ method: 'POST', url: '/api/auth/%6Cogin', payload: { email: `x${i}@test.ru`, password: 'x' } });
+  const r = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'admin@test.ru', password: 'admin-pass-1' } });
+  assert.equal(r.statusCode, 429);
+});
+
+test('parallel code requests count against the limit; foreign numbers are refused', async () => {
+  const { app, headers } = await setup();
+  const a = await headers('admin@test.ru', 'admin-pass-1');
+  const deal = (await app.inject({ method: 'POST', url: '/api/deals', headers: a,
+    payload: { clientName: 'Петров Пётр', phone: '+7 900 123-45-67', subject: 'Лодка', total: 100000, downPct: 20, term: 6 } })).json().deal;
+  const c = `/api/client/${deal.token}`;
+  await app.inject({ method: 'POST', url: `${c}/start` });
+  assert.equal((await app.inject({ method: 'POST', url: `${c}/phone/send`, payload: { phone: '+44 20 7946 0958' } })).statusCode, 400);
+  const sends = await Promise.all(Array.from({ length: 10 }, () => app.inject({ method: 'POST', url: `${c}/phone/send`, payload: { phone: deal.phone } })));
+  assert.equal(sends.filter((r) => r.statusCode === 200).length, 1);
+});
+
+test('a deal needs a sensible down payment and installments of at least 1 ₽', async () => {
+  const { app, headers } = await setup();
+  const a = await headers('admin@test.ru', 'admin-pass-1');
+  const base = { clientName: 'Петров Пётр', phone: '+7 900 123-45-67', subject: 'Лодка', total: 100000, downPct: 20, term: 6 };
+  const create = (p: object) => app.inject({ method: 'POST', url: '/api/deals', headers: a, payload: { ...base, ...p } });
+  for (const bad of [{ downPct: 100 }, { downPct: 0 }, { total: 5, term: 12 }, { total: 1e300 }, { phone: 123 }, { clientName: ['x'] }]) {
+    assert.equal((await create(bad)).statusCode, 400, JSON.stringify(bad));
+  }
+  assert.equal((await create({})).statusCode, 201);
+});

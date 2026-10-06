@@ -81,7 +81,7 @@ export default withClientDeal(function Cabinet({ deal }) {
         {tab === 'contract' && (
           <>
             {deal.signature && <Stamp>Подписано ПЭП {formatDate(deal.signature.at)} · {deal.signature.id}</Stamp>}
-            <Button ghost title="Скачать договор в PDF" onPress={() => Linking.openURL(contractPdfUrl(deal.token))} />
+            <Button ghost title="Скачать договор в PDF" onPress={() => Linking.openURL(contractPdfUrl(deal.token)).catch(() => {})} />
             <ContractText deal={deal} />
           </>
         )}

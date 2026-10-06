@@ -3,7 +3,7 @@ import { Linking, View } from 'react-native';
 
 import { contractPdfUrl } from '@/api';
 
-import { formatDate, rub } from '@/lib/money';
+import { formatDate, formatTime, rub } from '@/lib/money';
 import { days, dealProgress } from '@/lib/schedule';
 import { STAGE_LABEL, useDealDetails } from '@/state/deals';
 import { downAmount, PAID_BY_LABEL, type PaidBy } from '@/state/types';
@@ -46,12 +46,12 @@ function paymentText(type: string, data: unknown) {
 /** "· Анна" when a manager did it. */
 const byWhom = (data: unknown) => (data && typeof data === 'object' && 'by' in data ? ` · ${String((data as { by: string }).by)}` : '');
 
-const time = (d: Date) => `${formatDate(d)} ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+const time = (d: Date) => `${formatDate(d)} ${formatTime(d)}`;
 
 export default function DealDetails() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { deal, events, inviteUrl, error, reload } = useDealDetails(id);
-  if (!deal || !events) return <Screen><Loading error={error} /></Screen>;
+  if (!deal || !events) return <Screen><Loading error={error} onRetry={reload} /></Screen>;
   const { sum, overdue } = dealProgress(deal);
   const cancelReason = (events.find((e) => e.type === 'cancelled')?.data as { reason?: string } | undefined)?.reason;
   return (
@@ -75,7 +75,7 @@ export default function DealDetails() {
         {cancelReason && <Hint>Причина отмены: {cancelReason}</Hint>}
         <Button ghost title="Открыть сделку глазами клиента" onPress={() => router.push(`/client?t=${encodeURIComponent(deal.token)}`)} />
       </Card>
-      <RecordPayment deal={deal} onDone={reload} />
+      <RecordPayment key={`${deal.stage}-${deal.installmentsPaid.length}`} deal={deal} onDone={reload} />
       <Card><InviteCard deal={deal} inviteUrl={inviteUrl ?? null} /></Card>
       {deal.faceMatch != null && <Card><KycPhotos deal={deal} /></Card>}
       <Card>
@@ -94,7 +94,7 @@ export default function DealDetails() {
       <Card>
         <H2>Договор</H2>
         {!deal.passport && <Hint>Паспортные данные появятся после верификации клиента.</Hint>}
-        <Button ghost title="Скачать договор в PDF" onPress={() => Linking.openURL(contractPdfUrl(deal.token))} />
+        <Button ghost title="Скачать договор в PDF" onPress={() => Linking.openURL(contractPdfUrl(deal.token)).catch(() => {})} />
         <ContractText deal={deal} />
       </Card>
       {deal.stage !== 'cancelled' && !deal.downPayment && <Card><CancelDeal deal={deal} onDone={reload} /></Card>}

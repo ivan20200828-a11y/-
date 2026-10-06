@@ -23,7 +23,14 @@ export default function NewDeal() {
   const sum = parseAmount(total);
   const pct = Math.min(100, parseAmount(downPct));
   const down = Math.round((sum * pct) / 100);
-  const valid = clientName.trim() && subject.trim() && phone.replace(/\D/g, '').length >= 11 && sum > 0;
+  const digits = phone.replace(/\D/g, '');
+  const phoneOk = /^[78]\d{10}$/.test(digits);
+  const pctOk = pct >= 1 && pct <= 99;
+  const restOk = sum - down >= term;
+  const valid = clientName.trim() && subject.trim() && phoneOk && sum > 0 && pctOk && restOk;
+  const problem = digits.length >= 11 && !phoneOk ? 'Нужен российский номер: +7 и 10 цифр.'
+    : downPct !== '' && !pctOk ? 'Взнос указывается от 1 до 99%.'
+    : sum > 0 && !restOk ? 'Сумма рассрочки слишком мала для такого срока.' : '';
 
   const submit = async () => {
     setBusy(true);
@@ -59,7 +66,8 @@ export default function NewDeal() {
             ))}
           </View>
         </View>
-        {sum > 0 && <Hint>Взнос {rub(down)}, затем {term} платежей по {rub((sum - down) / term)}.</Hint>}
+        {sum > 0 && pctOk && restOk && <Hint>Взнос {rub(down)}, затем {term} платежей по {rub((sum - down) / term)}.</Hint>}
+        {!!problem && <ErrorText>{problem}</ErrorText>}
         <Button title="Создать сделку и пригласить клиента" onPress={submit} disabled={!valid} loading={busy} />
         {!!error && <ErrorText>{error}</ErrorText>}
         <Hint>Клиент получит SMS со ссылкой на оформление (в тестовом режиме SMS не отправляется).</Hint>

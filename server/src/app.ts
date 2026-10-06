@@ -30,7 +30,12 @@ export type AppOptions = {
 const image = (b64: unknown) => (typeof b64 === 'string' && b64.length > 0 ? Buffer.from(b64.replace(/^data:[^,]+,/, ''), 'base64') : null);
 
 export function buildApp({ db, providers, logger = false, appUrl, webDir, backups, trustProxy = false }: AppOptions): { app: FastifyInstance; deals: DealService; auth: AuthService } {
-  const app = Fastify({ logger, bodyLimit: 20 * 1024 * 1024, trustProxy });
+  // Client addresses carry the deal token, which opens the client's passport data: the log keeps only its start.
+  const hideToken = (url: string) => url.replace(/(\/api\/client\/[^/?]{4})[^/?]*/, '$1…').replace(/([?&](t|key)=)[^&]*/g, '$1…');
+  const app = Fastify({
+    logger: logger && { serializers: { req: (req: { method: string; url: string; ip: string }) => ({ method: req.method, url: hideToken(req.url), remoteAddress: req.ip }) } },
+    bodyLimit: 20 * 1024 * 1024, trustProxy,
+  });
   const deals = new DealService(db, providers, { appUrl });
   const auth = new AuthService(db);
   const exports = new ExportService(db, deals);
@@ -51,8 +56,10 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir, backup
     reply.header('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
     if (req.protocol === 'https') reply.header('Strict-Transport-Security', 'max-age=31536000');
     if (req.method === 'OPTIONS') return reply.code(204).send();
+    // The matched route, not the raw address: "/api/%63lient/…" reaches the same handler.
+    const route = req.routeOptions.url ?? '';
     const tooMany = (limit: RateLimiter) => !limit.allow(req.ip);
-    if ((req.url.startsWith('/api/auth/login') && tooMany(loginLimit)) || (req.url.startsWith('/api/client/') && tooMany(clientLimit))) {
+    if ((route === '/api/auth/login' && tooMany(loginLimit)) || (route.startsWith('/api/client/') && tooMany(clientLimit))) {
       return reply.code(429).send({ error: 'Слишком много запросов. Подождите немного и попробуйте снова.' });
     }
   });
@@ -96,7 +103,7 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir, backup
     m.get('/api/deals/:id/kyc', async (req) => ({ images: deals.kycImages((req.params as { id: string }).id) }));
     m.post('/api/deals/:id/invite', async (req) => ({ deal: await deals.resendInvite((req.params as { id: string }).id, who(req).name) }));
     m.post('/api/deals/:id/cancel', async (req) =>
-      ({ deal: deals.cancel((req.params as { id: string }).id, String((req.body as { reason?: string } | null)?.reason ?? ''), who(req).name) }));
+      ({ deal: await deals.cancel((req.params as { id: string }).id, String((req.body as { reason?: string } | null)?.reason ?? ''), who(req).name) }));
 
     m.post('/api/deals/:id/payments', async (req) =>
       ({ deal: deals.recordManual((req.params as { id: string }).id, (req.body ?? {}) as { what: PayWhat; method: PaidBy; note?: string }, who(req).name) }));

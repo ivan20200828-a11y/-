@@ -1,4 +1,4 @@
-import { addMonths } from './money';
+import { addMonths, startOfDay, startOfMonth } from './money';
 
 export type Installment = { n: number; date: Date; amount: number };
 
@@ -19,7 +19,6 @@ type DealLike = {
 };
 
 const DAY = 86400000;
-const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
 /** How much of a deal is paid, the next payment, and the installments past their date and still unpaid. */
 export function dealProgress(deal: DealLike, now = new Date()) {
@@ -44,7 +43,7 @@ export const days = (n: number) => {
 
 /** Money across all deals for the manager's summary: collected, overdue and expected soon. */
 export function portfolio(deals: (DealLike & { stage: string; downPayment?: { at: Date }; installmentsPaid: { n: number; at: Date }[] })[], now = new Date()) {
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthStart = startOfMonth(now);
   const soon = new Date(+startOfDay(now) + 30 * DAY);
   const r = { onboarding: 0, active: 0, collected: 0, month: 0, overdue: 0, overdueDeals: 0, expected: 0 };
   for (const d of deals) {

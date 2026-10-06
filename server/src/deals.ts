@@ -22,6 +22,12 @@ const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDat
 const rubText = (n: number) => `${n.toLocaleString('ru-RU')} ₽`;
 const dayText = (d: Date) => d.toLocaleDateString('ru-RU');
 const MAX_CODE_ATTEMPTS = 5;
+const MAX_TOTAL = 10_000_000_000;
+/** A pending bank payment younger than this blocks cancelling: the client may be on the bank's page right now. */
+const OPEN_PAYMENT_MS = 24 * 60 * 60 * 1000;
+
+/** The app works in Russia: +7 or 8 and ten more digits, written with spaces, brackets or dashes. Also stops SMS to paid foreign numbers. */
+const isRussianPhone = (p: unknown) => typeof p === 'string' && /^[\d\s()+-]+$/.test(p.trim()) && /^[78]\d{10}$/.test(p.replace(/\D/g, ''));
 
 type Row = Record<string, string | number | null>;
 
@@ -95,8 +101,8 @@ export class DealService {
   // ---------- writing ----------
 
   private log(id: string, type: string, data?: unknown) {
-    this.db.prepare('INSERT INTO events (deal_id, at, type, data) VALUES (?, ?, ?, ?)').run(
-      id, new Date().toISOString(), type, data === undefined ? null : JSON.stringify(data));
+    return this.db.prepare('INSERT INTO events (deal_id, at, type, data) VALUES (?, ?, ?, ?)').run(
+      id, new Date().toISOString(), type, data === undefined ? null : JSON.stringify(data)).lastInsertRowid;
   }
 
   private set(id: string, fields: Record<string, string | number | null>) {
@@ -109,11 +115,15 @@ export class DealService {
   }
 
   create(n: NewDeal, opts: { id?: string; token?: string; createdAt?: string } = {}, by?: string): Deal {
-    if (!n.clientName?.trim() || !n.subject?.trim()) throw new ApiError(400, 'Укажите ФИО клиента и предмет сделки');
-    if (String(n.phone ?? '').replace(/\D/g, '').length < 11) throw new ApiError(400, 'Укажите телефон клиента полностью');
-    if (!Number.isInteger(n.total) || n.total <= 0) throw new ApiError(400, 'Стоимость должна быть целым числом рублей больше нуля');
-    if (!Number.isInteger(n.downPct) || n.downPct < 0 || n.downPct > 100) throw new ApiError(400, 'Взнос указывается в процентах от 0 до 100');
+    if (typeof n.clientName !== 'string' || typeof n.subject !== 'string' || !n.clientName.trim() || !n.subject.trim()) {
+      throw new ApiError(400, 'Укажите ФИО клиента и предмет сделки');
+    }
+    if (n.clientName.length > 200 || n.subject.length > 300) throw new ApiError(400, 'ФИО или предмет сделки слишком длинные');
+    if (!isRussianPhone(n.phone)) throw new ApiError(400, 'Укажите российский номер телефона клиента полностью, например +7 900 123-45-67');
+    if (!Number.isInteger(n.total) || n.total <= 0 || n.total > MAX_TOTAL) throw new ApiError(400, 'Стоимость должна быть целым числом рублей больше нуля и не больше 10 млрд');
+    if (!Number.isInteger(n.downPct) || n.downPct < 1 || n.downPct > 99) throw new ApiError(400, 'Взнос указывается в процентах от 1 до 99');
     if (!Number.isInteger(n.term) || n.term < 1 || n.term > 120) throw new ApiError(400, 'Срок рассрочки от 1 до 120 месяцев');
+    if (n.total - downAmount(n) < n.term) throw new ApiError(400, 'Сумма рассрочки слишком мала для такого срока: каждый платёж должен быть не меньше 1 ₽');
     const count = (this.db.prepare('SELECT COUNT(*) AS c FROM deals').get() as { c: number }).c;
     const id = opts.id ?? randomUUID();
     const no = `Д-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
@@ -144,22 +154,41 @@ export class DealService {
   async resendInvite(id: string, by?: string) {
     const d = this.byId(id);
     if (d.stage === 'active' || d.stage === 'cancelled') throw new ApiError(409, 'Сделка уже оформлена или отменена');
-    this.throttleSms(d, 'invite_resent', 3);
-    await this.sms(d.id, d.token, d.phone, this.inviteText(d.seller, d.token));
-    this.log(d.id, 'invite_resent', by ? { by } : undefined);
+    await this.throttled(d, 'invite_resent', 3, by ? { by } : undefined, () => this.sms(d.id, d.token, d.phone, this.inviteText(d.seller, d.token)));
     return d;
   }
 
   /** Cancels a deal that has not been paid yet; the client then sees that it was cancelled. */
-  cancel(id: string, reason: string, by?: string) {
-    const d = this.byId(id);
+  async cancel(id: string, reason: string, by?: string) {
+    let d = this.byId(id);
     if (d.stage === 'cancelled') return d;
-    if (d.downPayment) throw new ApiError(409, 'По сделке уже есть оплата. Отмена оформляется через возврат денег.');
     if (!String(reason ?? '').trim()) throw new ApiError(400, 'Укажите причину отмены');
+    if (await this.hasOpenPayment(d.id)) {
+      throw new ApiError(409, 'Клиент сейчас оплачивает взнос в банке. Отменить сделку можно, когда оплата пройдёт или будет отклонена.');
+    }
+    d = this.byId(id);
+    if (d.downPayment) throw new ApiError(409, 'По сделке уже есть оплата. Отмена оформляется через возврат денег.');
     this.set(d.id, { stage: 'cancelled' });
     this.db.prepare('DELETE FROM codes WHERE deal_id = ?').run(d.id);
     this.log(d.id, 'cancelled', { reason: reason.trim(), ...(by ? { by } : {}) });
     return this.byId(d.id);
+  }
+
+  /** Asks the bank about the deal's unfinished payments; true while one may still be paid. */
+  private async hasOpenPayment(dealId: string) {
+    const since = new Date(Date.now() - OPEN_PAYMENT_MS).toISOString();
+    const open = this.db.prepare(`SELECT id, provider_id FROM payment_orders WHERE deal_id = ? AND status = 'pending' AND created_at > ?`)
+      .all(dealId, since) as { id: string; provider_id: string | null }[];
+    for (const o of open) {
+      if (o.provider_id) {
+        try {
+          this.applyStatus(o.id, await this.providers.payments.check(o.provider_id));
+        } catch {
+          // No answer from the bank: treat the payment as still open.
+        }
+      }
+    }
+    return open.some((o) => this.order(o.id)?.status === 'pending');
   }
 
   /** Photos the client uploaded at verification, as data URLs for the manager's review. */
@@ -194,6 +223,21 @@ export class DealService {
     }
   }
 
+  /**
+   * Runs an SMS send under the per-deal limit. The event is recorded before the send, so parallel requests
+   * already count each other, and removed again when the gateway fails.
+   */
+  private async throttled(d: Deal, type: string, perHour: number, data: unknown, send: () => Promise<void>) {
+    this.throttleSms(d, type, perHour);
+    const eventId = this.log(d.id, type, data);
+    try {
+      await send();
+    } catch (e) {
+      this.db.prepare('DELETE FROM events WHERE id = ?').run(eventId);
+      throw e;
+    }
+  }
+
   /** SMS cost money and can be used to pester someone: a pause between sends and a cap per hour, per deal. */
   private throttleSms(d: Deal, type: string, perHour: number) {
     const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -204,12 +248,12 @@ export class DealService {
   }
 
   private async sendCode(d: Deal, purpose: 'phone' | 'sign', phone: string, text: (code: string) => string) {
-    this.throttleSms(d, `${purpose}_code_sent`, 5);
-    const code = this.smsFor(d.token).newCode();
-    this.db.prepare(`INSERT OR REPLACE INTO codes (deal_id, purpose, code, expires_at, attempts) VALUES (?, ?, ?, ?, 0)`).run(
-      d.id, purpose, code, new Date(Date.now() + CODE_TTL_MS).toISOString());
-    await this.sms(d.id, d.token, phone, text(code));
-    this.log(d.id, `${purpose}_code_sent`, { phone });
+    await this.throttled(d, `${purpose}_code_sent`, 5, { phone }, async () => {
+      const code = this.smsFor(d.token).newCode();
+      this.db.prepare(`INSERT OR REPLACE INTO codes (deal_id, purpose, code, expires_at, attempts) VALUES (?, ?, ?, ?, 0)`).run(
+        d.id, purpose, code, new Date(Date.now() + CODE_TTL_MS).toISOString());
+      await this.sms(d.id, d.token, phone, text(code));
+    });
   }
 
   private checkCode(d: Deal, purpose: 'phone' | 'sign', code: string) {
@@ -228,7 +272,7 @@ export class DealService {
   async sendPhoneCode(token: string, phone: string) {
     const d = this.byToken(token);
     this.requireStage(d, 'phone');
-    if (String(phone ?? '').replace(/\D/g, '').length < 11) throw new ApiError(400, 'Введите номер телефона полностью');
+    if (!isRussianPhone(phone)) throw new ApiError(400, 'Введите российский номер телефона полностью, например +7 900 123-45-67');
     this.set(d.id, { phone: phone.trim() });
     await this.sendCode(d, 'phone', phone, (c) => `Код подтверждения: ${c}`);
     return this.byId(d.id);
@@ -267,6 +311,7 @@ export class DealService {
     if (d.faceMatch < 80) throw new ApiError(400, 'Лицо на селфи не совпало с паспортом. Сделайте селфи ещё раз.');
     const keys: (keyof Passport)[] = ['fio', 'birth', 'series', 'issued', 'issuedAt', 'address'];
     if (keys.some((k) => !String(p?.[k] ?? '').trim())) throw new ApiError(400, 'Заполните все паспортные данные');
+    if (keys.some((k) => String(p[k]).length > 300)) throw new ApiError(400, 'Паспортные данные слишком длинные. Проверьте, что в поля попал только нужный текст.');
     const clean = Object.fromEntries(keys.map((k) => [k, String(p[k]).trim()])) as Passport;
     this.set(d.id, { passport: JSON.stringify(clean), client_name: clean.fio, stage: 'contract' });
     this.log(d.id, 'passport_confirmed', clean);

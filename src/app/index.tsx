@@ -1,8 +1,15 @@
 import { router } from 'expo-router';
+import { useState } from 'react';
 
-import { Button, Card, H1, H2, Hint, Screen } from '@/ui/kit';
+import { DEMO_TOKEN, useClient } from '@/state/deals';
+import { Button, Card, Field, H1, H2, Hint, Screen } from '@/ui/kit';
 
 export default function Home() {
+  const { token } = useClient();
+  const [code, setCode] = useState('');
+  const hasDeal = !!token && token !== DEMO_TOKEN;
+  // An invitation SMS without a link carries the code; it may be pasted with spaces around it.
+  const open = () => router.push(`/client?t=${encodeURIComponent(code.trim())}`);
   return (
     <Screen>
       <Card>
@@ -12,7 +19,11 @@ export default function Home() {
       <Card>
         <H2>Я клиент</H2>
         <Hint>Оформить сделку по приглашению и открыть личный кабинет.</Hint>
-        <Button title="Открыть мою сделку" onPress={() => router.push('/client')} />
+        {hasDeal && <Button title="Открыть мою сделку" onPress={() => router.push('/client')} />}
+        <Field label="Код приглашения из SMS" value={code} onChangeText={setCode} autoCapitalize="none" autoCorrect={false}
+          onSubmitEditing={() => code.trim() && open()} />
+        <Button ghost={hasDeal} title="Открыть по коду" disabled={!code.trim()} onPress={open} />
+        <Button ghost title="Посмотреть демо-сделку" onPress={() => router.push(`/client?t=${DEMO_TOKEN}`)} />
       </Card>
       <Card>
         <H2>Я менеджер</H2>

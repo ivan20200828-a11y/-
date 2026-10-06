@@ -33,6 +33,7 @@ export default withClientDeal(function Sign({ deal }) {
             <CodeField label="Код подписи" value={code} onChangeText={(t) => { setCode(t); setError(''); }} />
             <Button title="Подписать договор" loading={busy} disabled={code.length < 4}
               onPress={() => run('sign/verify', { code }, () => router.push('/client/pay'))} />
+            <Button ghost title="Отправить код ещё раз" disabled={busy} onPress={() => run('sign/send', {}, () => setCode(''))} />
           </>
         ) : (
           <Button title="Получить код подписи" loading={busy} onPress={() => run('sign/send', {}, () => setSent(true))} />

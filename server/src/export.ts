@@ -13,7 +13,9 @@ const STAGE: Record<string, string> = {
 /** A CSV that Excel opens correctly in Russian: UTF-8 with BOM, semicolons, CRLF. */
 export function toCsv(rows: (string | number | null | undefined)[][]) {
   const cell = (v: string | number | null | undefined) => {
-    const s = v == null ? '' : String(v);
+    let s = v == null ? '' : String(v);
+    // Text a client typed (name, phone) must not run as a formula when the file is opened in Excel.
+    if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
     return /[;"\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return '﻿' + rows.map((r) => r.map(cell).join(';')).join('\r\n') + '\r\n';

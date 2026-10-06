@@ -33,7 +33,7 @@ export function usePayment(onPaid: () => void) {
     if (!waiting) return;
     const timer = setInterval(async () => {
       try {
-        const r = await clientApi.payment(token, waiting.id);
+        const r = await clientApi.payment(token!, waiting.id);
         setDeal(r.deal);
         settle(r.payment);
       } catch {
@@ -49,7 +49,7 @@ export function usePayment(onPaid: () => void) {
     setBusy(true);
     setError('');
     try {
-      const r = await clientApi.pay(token, what, method);
+      const r = await clientApi.pay(token!, what, method);
       setDeal(r.deal);
       if (r.payment.status === 'pending') {
         setWaiting(r.payment);

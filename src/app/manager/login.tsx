@@ -11,6 +11,7 @@ export default function Login() {
   const [error, setError] = useState('');
 
   const submit = async () => {
+    if (busy || !email.trim() || !password) return;
     setBusy(true);
     setError('');
     try {

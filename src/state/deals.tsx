@@ -1,14 +1,16 @@
 import { router, useFocusEffect } from 'expo-router';
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 
 import { ApiError, clientApi, managerApi, type DealEvent } from '@/api';
+import { clientDealToken } from '@/lib/session';
 
 import type { Deal, Stage } from './types';
 
 // ---------- client: one deal, opened by the token from the invite link ----------
 
 type ClientStore = {
-  token: string;
+  /** null until the token saved on the device has been read. */
+  token: string | null;
   setToken: (t: string) => void;
   deal: Deal | null;
   error: string;
@@ -21,14 +23,20 @@ type ClientStore = {
 const ClientCtx = createContext<ClientStore | null>(null);
 
 /** The demo deal; a real invite link opens /client?t=<token>. */
-const DEMO_TOKEN = 'demo';
+export const DEMO_TOKEN = 'demo';
 
 export function ClientProvider({ children }: { children: ReactNode }) {
-  const [token, setTokenState] = useState(DEMO_TOKEN);
+  const [token, setTokenState] = useState<string | null>(null);
   const [deal, setDeal] = useState<Deal | null>(null);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    // A token from the address (set meanwhile) wins over the saved one.
+    clientDealToken.get().then((saved) => setTokenState((cur) => cur ?? saved ?? DEMO_TOKEN));
+  }, []);
+
   const load = useCallback(async () => {
+    if (!token) return;
     try {
       setDeal(await clientApi.get(token));
       setError('');
@@ -42,17 +50,25 @@ export function ClientProvider({ children }: { children: ReactNode }) {
     setToken: (t) => {
       if (t === token) return;
       setDeal(null);
+      setError('');
       setTokenState(t);
+      if (t !== DEMO_TOKEN) clientDealToken.set(t);
     },
     deal,
     error,
     load,
     setDeal,
     step: async (step, body) => {
+      if (!token) return 'Сделка ещё загружается';
       try {
         setDeal(await clientApi.step(token, step, body));
         return null;
       } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          // The deal moved on elsewhere (cancelled by the manager, another tab): show where it is now.
+          await load();
+          router.replace('/client');
+        }
         return (e as Error).message;
       }
     },

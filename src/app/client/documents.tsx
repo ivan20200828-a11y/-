@@ -33,7 +33,7 @@ export default withClientDeal(function Documents({ deal }) {
   const recognize = async (p: Shot, s: Shot) => {
     setRecognizing(true);
     try {
-      const r = await clientApi.kyc(token, {
+      const r = await clientApi.kyc(token!, {
         passportImage: p && p !== 'sample' ? p.base64 : undefined,
         selfieImage: s && s !== 'sample' ? s.base64 : undefined,
       });
@@ -57,7 +57,12 @@ export default withClientDeal(function Documents({ deal }) {
       mediaTypes: ['images'], quality: 0.6, base64: true,
       cameraType: which === 'selfie' ? ImagePicker.CameraType.front : ImagePicker.CameraType.back,
     };
-    const res = useCamera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
+    let res: ImagePicker.ImagePickerResult;
+    try {
+      res = useCamera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
+    } catch {
+      return setError(useCamera ? 'Не получилось открыть камеру. Попробуйте ещё раз или перезапустите приложение.' : 'Не получилось открыть выбор фото. Попробуйте ещё раз.');
+    }
     if (res.canceled) return;
     const shot = { uri: res.assets[0].uri, base64: res.assets[0].base64 ?? undefined };
     const p = which === 'passport' ? shot : passportShot;

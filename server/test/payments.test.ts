@@ -151,3 +151,19 @@ test('without receipt settings no receipt is sent', async () => {
   await app.inject({ method: 'POST', url: `/api/client/${token}/pay`, payload: { what: 'down', method: 'card' } });
   assert.equal(bank.requests.find((r) => r.method === 'Init')!.body.Receipt, undefined);
 });
+
+test('a deal cannot be cancelled while the client is paying the down payment at the bank', async () => {
+  const { deals, bank, token } = await setup();
+  const { payment } = await deals.pay(token, 'down', 'card');
+  const id = deals.byToken(token).id;
+  await assert.rejects(deals.cancel(id, 'Передумал'), { status: 409, message: /оплачивает взнос/ });
+  const paymentId = [...bank.payments.keys()].at(-1)!;
+  bank.notify(paymentId, 'REJECTED');
+  assert.ok(payment.id);
+  assert.equal((await deals.cancel(id, 'Передумал')).stage, 'cancelled', 'after the bank declined, cancelling works');
+});
+
+test('CSV cells that look like formulas are kept as text', async () => {
+  const { toCsv } = await import('../src/export.ts');
+  assert.equal(toCsv([['=cmd()', '+7 900', '-5', 42, -5]]), "﻿'=cmd();'+7 900;'-5;42;-5\r\n");
+});
