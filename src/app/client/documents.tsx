@@ -9,6 +9,7 @@ import { withClientDeal } from '@/state/client-gate';
 import { useClient } from '@/state/deals';
 import type { Passport } from '@/state/types';
 import { Button, Card, ErrorText, Field, H2, Hint, Pill, Row, Screen, Stepper } from '@/ui/kit';
+import { ContactManager } from '@/ui/contact';
 import { useColors } from '@/ui/theme';
 
 const FIELDS: [keyof Passport, string][] = [
@@ -111,6 +112,7 @@ export default withClientDeal(function Documents({ deal }) {
         )}
         <Button title="Данные верны, к договору" onPress={confirm} loading={busy} disabled={!data || recognizing || FIELDS.some(([k]) => !data[k].trim())} />
       </Card>
+      <ContactManager deal={deal} />
     </Screen>
   );
 });

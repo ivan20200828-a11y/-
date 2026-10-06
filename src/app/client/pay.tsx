@@ -6,6 +6,7 @@ import { withClientDeal } from '@/state/client-gate';
 import { usePayment } from '@/state/payment';
 import { downAmount, type PayMethod } from '@/state/types';
 import { Big, Button, Card, ErrorText, H2, Hint, Screen, Stamp, Stepper, Tabs } from '@/ui/kit';
+import { ContactManager } from '@/ui/contact';
 import { PaymentWaiting, TransferDetails } from '@/ui/payment';
 
 export default withClientDeal(function Pay({ deal }) {
@@ -41,6 +42,7 @@ export default withClientDeal(function Pay({ deal }) {
         )}
         {!!payment.error && <ErrorText>{payment.error}</ErrorText>}
       </Card>
+      <ContactManager deal={deal} />
     </Screen>
   );
 });

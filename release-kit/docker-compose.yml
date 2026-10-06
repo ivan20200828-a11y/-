@@ -12,6 +12,7 @@ services:
       APP_URL: https://${DOMAIN:?впишите DOMAIN в settings.env}
       PUBLIC_URL: https://${DOMAIN}
       SEED: "off"  # на сервере демо-сделок нет
+      TRUST_PROXY: "1"  # адрес клиента берётся от Caddy, для ограничения попыток входа
     volumes:
       - data:/data
   https:

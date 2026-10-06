@@ -16,6 +16,7 @@ export class ApiError extends Error {
 }
 
 const CODE_TTL_MS = 5 * 60 * 1000;
+const SMS_PAUSE_MS = 30 * 1000;
 const DAY = 86400000;
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const rubText = (n: number) => `${n.toLocaleString('ru-RU')} ₽`;
@@ -143,6 +144,7 @@ export class DealService {
   async resendInvite(id: string, by?: string) {
     const d = this.byId(id);
     if (d.stage === 'active' || d.stage === 'cancelled') throw new ApiError(409, 'Сделка уже оформлена или отменена');
+    this.throttleSms(d, 'invite_resent', 3);
     await this.sms(d.id, d.token, d.phone, this.inviteText(d.seller, d.token));
     this.log(d.id, 'invite_resent', by ? { by } : undefined);
     return d;
@@ -192,7 +194,17 @@ export class DealService {
     }
   }
 
+  /** SMS cost money and can be used to pester someone: a pause between sends and a cap per hour, per deal. */
+  private throttleSms(d: Deal, type: string, perHour: number) {
+    const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const sent = this.db.prepare('SELECT at FROM events WHERE deal_id = ? AND type = ? AND at > ? ORDER BY at DESC').all(d.id, type, since) as { at: string }[];
+    if (sent.length >= perHour) throw new ApiError(429, 'Слишком много SMS за час. Попробуйте позже или свяжитесь с менеджером.');
+    const wait = sent.length ? Math.ceil((+new Date(sent[0].at) + SMS_PAUSE_MS - Date.now()) / 1000) : 0;
+    if (wait > 0) throw new ApiError(429, `Новое SMS можно запросить через ${wait} с.`);
+  }
+
   private async sendCode(d: Deal, purpose: 'phone' | 'sign', phone: string, text: (code: string) => string) {
+    this.throttleSms(d, `${purpose}_code_sent`, 5);
     const code = this.smsFor(d.token).newCode();
     this.db.prepare(`INSERT OR REPLACE INTO codes (deal_id, purpose, code, expires_at, attempts) VALUES (?, ?, ?, ?, 0)`).run(
       d.id, purpose, code, new Date(Date.now() + CODE_TTL_MS).toISOString());

@@ -23,6 +23,7 @@ export default function RootLayout() {
           <Stack.Screen name="manager/[id]" options={{ title: 'Сделка' }} />
           <Stack.Screen name="manager/team" options={{ title: 'Сотрудники' }} />
           <Stack.Screen name="manager/company" options={{ title: 'Компания' }} />
+          <Stack.Screen name="manager/password" options={{ title: 'Пароль' }} />
         </Stack>
       </ClientProvider>
     </ThemeProvider>

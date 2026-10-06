@@ -8,6 +8,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 
 import { AuthService, type Manager } from './auth.ts';
 import { snapshot, type BackupService } from './backup.ts';
+import { RateLimiter } from './rate-limit.ts';
 import { contractPdf } from './contract-pdf.ts';
 import type { DB } from './db.ts';
 import { ESIGN_AGREEMENT } from './esign.ts';
@@ -22,22 +23,38 @@ export type AppOptions = {
   webDir?: string;
   /** Daily copies of the database, when the server keeps them. */
   backups?: BackupService;
+  /** Behind a reverse proxy (Caddy): take the client's address from X-Forwarded-For. */
+  trustProxy?: boolean;
 };
 
 const image = (b64: unknown) => (typeof b64 === 'string' && b64.length > 0 ? Buffer.from(b64.replace(/^data:[^,]+,/, ''), 'base64') : null);
 
-export function buildApp({ db, providers, logger = false, appUrl, webDir, backups }: AppOptions): { app: FastifyInstance; deals: DealService; auth: AuthService } {
-  const app = Fastify({ logger, bodyLimit: 20 * 1024 * 1024 });
+export function buildApp({ db, providers, logger = false, appUrl, webDir, backups, trustProxy = false }: AppOptions): { app: FastifyInstance; deals: DealService; auth: AuthService } {
+  const app = Fastify({ logger, bodyLimit: 20 * 1024 * 1024, trustProxy });
   const deals = new DealService(db, providers, { appUrl });
   const auth = new AuthService(db);
   const exports = new ExportService(db, deals);
 
-  // The mobile app and the web build call the API from other origins.
+  // Against password guessing and scripted calls: sign-in attempts and client requests per address.
+  const loginLimit = new RateLimiter(20, 10 * 60 * 1000);
+  const clientLimit = new RateLimiter(120, 60 * 1000);
+
   app.addHook('onRequest', async (req, reply) => {
+    // The mobile app and the web build call the API from other origins.
     reply.header('Access-Control-Allow-Origin', '*');
     reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
+    // Client links carry the deal token, so pages never pass their address on to other sites.
+    reply.header('Referrer-Policy', 'no-referrer');
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'DENY');
+    reply.header('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
+    if (req.protocol === 'https') reply.header('Strict-Transport-Security', 'max-age=31536000');
     if (req.method === 'OPTIONS') return reply.code(204).send();
+    const tooMany = (limit: RateLimiter) => !limit.allow(req.ip);
+    if ((req.url.startsWith('/api/auth/login') && tooMany(loginLimit)) || (req.url.startsWith('/api/client/') && tooMany(clientLimit))) {
+      return reply.code(429).send({ error: 'Слишком много запросов. Подождите немного и попробуйте снова.' });
+    }
   });
 
   app.setErrorHandler((err, _req, reply) => {
@@ -103,6 +120,16 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir, backup
     m.post('/api/managers', async (req, reply) => {
       const b = (req.body ?? {}) as { email?: string; name?: string; password?: string; admin?: boolean };
       return reply.code(201).send({ manager: auth.invite(who(req), b) });
+    });
+    const managerId = (req: { params: unknown }) => Number((req.params as { id: string }).id);
+    m.post('/api/managers/:id/password', async (req) =>
+      ({ manager: auth.resetPassword(who(req), managerId(req), (req.body as { password?: string } | null)?.password ?? '') }));
+    m.post('/api/managers/:id/disabled', async (req) =>
+      ({ manager: auth.setDisabled(who(req), managerId(req), (req.body as { disabled?: boolean } | null)?.disabled === true) }));
+    m.post('/api/auth/password', async (req) => {
+      const b = (req.body ?? {}) as { current?: string; next?: string };
+      auth.changePassword(who(req), req.headers.authorization, b.current ?? '', b.next ?? '');
+      return { ok: true };
     });
   });
 

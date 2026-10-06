@@ -5,6 +5,8 @@ import { rub } from '@/lib/money';
 import { useClient } from '@/state/deals';
 import { downAmount } from '@/state/types';
 import { Button, Card, ErrorText, H1, Hint, KV, Label, Loading, Screen } from '@/ui/kit';
+import type { Deal } from '@/state/types';
+import { ContactManager } from '@/ui/contact';
 
 export default function Invite() {
   const { t } = useLocalSearchParams<{ t?: string }>();
@@ -20,7 +22,7 @@ export default function Invite() {
   }, [t, token, load]);
 
   if (!deal || (t && t !== deal.token)) return <Screen><Loading error={error} onRetry={load} /></Screen>;
-  if (deal.stage === 'cancelled') return <Cancelled seller={deal.seller} no={deal.no} />;
+  if (deal.stage === 'cancelled') return <Cancelled deal={deal} />;
   if (deal.stage === 'active') return <Redirect href="/client/cabinet" />;
   if (deal.stage !== 'invited') return <Redirect href={`/client/${deal.stage}`} />;
 
@@ -48,18 +50,20 @@ export default function Invite() {
         <Button title="Начать оформление" onPress={start} loading={busy} />
         {!!stepError && <ErrorText>{stepError}</ErrorText>}
       </Card>
+      <ContactManager deal={deal} />
     </Screen>
   );
 }
 
-function Cancelled({ seller, no }: { seller: string; no: string }) {
+function Cancelled({ deal }: { deal: Deal }) {
   return (
     <Screen>
       <Card>
-        <Label>Сделка № {no}</Label>
+        <Label>Сделка № {deal.no}</Label>
         <H1>Сделка отменена</H1>
-        <Hint>{seller} отменил эту сделку. Если это ошибка, свяжитесь с вашим менеджером.</Hint>
+        <Hint>{deal.seller} отменил эту сделку. Если это ошибка, свяжитесь с вашим менеджером.</Hint>
       </Card>
+      <ContactManager deal={deal} />
     </Screen>
   );
 }

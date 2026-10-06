@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { withClientDeal } from '@/state/client-gate';
 import { useClient } from '@/state/deals';
 import { Button, Card, CodeField, ErrorText, H2, Hint, Screen, Stepper } from '@/ui/kit';
+import { ContactManager } from '@/ui/contact';
 
 export default withClientDeal(function Sign({ deal }) {
   const { step } = useClient();
@@ -38,6 +39,7 @@ export default withClientDeal(function Sign({ deal }) {
         )}
         {!!error && <ErrorText>{error}</ErrorText>}
       </Card>
+      <ContactManager deal={deal} />
     </Screen>
   );
 });

@@ -34,7 +34,7 @@ export class ApiError extends Error {
   }
 }
 
-export type Manager = { id: number; email: string; name: string; admin: boolean };
+export type Manager = { id: number; email: string; name: string; admin: boolean; disabled: boolean };
 
 function hydrate(d: WireDeal): Deal {
   return {
@@ -74,6 +74,9 @@ export const authApi = {
     return r.manager;
   },
   me: async () => (await call<{ manager: Manager }>('/api/auth/me', { manager: true })).manager,
+  changePassword: async (current: string, next: string) => {
+    await call('/api/auth/password', { body: { current, next }, manager: true });
+  },
   logout: async () => {
     await call('/api/auth/logout', { body: {}, manager: true }).catch(() => {});
     await session.set(null);
@@ -98,6 +101,10 @@ export const managerApi = {
   team: async () => (await call<{ managers: Manager[] }>('/api/managers', { manager: true })).managers,
   addColleague: async (m: { email: string; name: string; password: string; admin: boolean }) =>
     (await call<{ manager: Manager }>('/api/managers', { body: m, manager: true })).manager,
+  resetPassword: async (id: number, password: string) =>
+    (await call<{ manager: Manager }>(`/api/managers/${id}/password`, { body: { password }, manager: true })).manager,
+  setDisabled: async (id: number, disabled: boolean) =>
+    (await call<{ manager: Manager }>(`/api/managers/${id}/disabled`, { body: { disabled }, manager: true })).manager,
   create: async (d: Pick<Deal, 'clientName' | 'phone' | 'subject' | 'total' | 'downPct' | 'term'>) =>
     hydrate((await call<{ deal: WireDeal }>('/api/deals', { body: d, manager: true })).deal),
 };

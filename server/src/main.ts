@@ -15,7 +15,7 @@ const backups = process.env.BACKUP_DIR === 'off'
   : new BackupService(db, process.env.BACKUP_DIR ?? path.join(path.dirname(path.resolve(dbFile)), 'backups'), Number(process.env.BACKUP_KEEP ?? 14));
 
 const providers = providersFromEnv();
-const { app, deals, auth } = buildApp({ db, providers, logger: true, appUrl: process.env.APP_URL ?? `http://localhost:${port}`, backups, webDir: process.env.WEB_DIR });
+const { app, deals, auth } = buildApp({ db, providers, logger: true, appUrl: process.env.APP_URL ?? `http://localhost:${port}`, backups, trustProxy: process.env.TRUST_PROXY === '1', webDir: process.env.WEB_DIR });
 
 // First start: create the first manager account from the environment, or a demo one.
 if (!auth.hasManagers()) {

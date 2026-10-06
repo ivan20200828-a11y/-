@@ -10,6 +10,7 @@ import { downAmount, PAID_BY_LABEL } from '@/state/types';
 import { ContractText, ScheduleTable } from '@/ui/contract';
 import { PaymentWaiting, TransferDetails } from '@/ui/payment';
 import { Big, Button, Card, ErrorText, H1, H2, KV, Label, Pill, Progress, Screen, Stamp, Tabs, Txt } from '@/ui/kit';
+import { ContactManager } from '@/ui/contact';
 
 type Tab = 'sched' | 'contract' | 'hist';
 
@@ -91,6 +92,7 @@ export default withClientDeal(function Cabinet({ deal }) {
           ]} />
         )}
       </Card>
+      <ContactManager deal={deal} />
     </Screen>
   );
 });

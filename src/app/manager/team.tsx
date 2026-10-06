@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 
-import { managerApi, type Manager } from '@/api';
+import { authApi, managerApi, type Manager } from '@/api';
 import { Button, Card, Checkbox, ErrorText, Field, H2, Hint, Loading, Pill, Row, Screen, Txt } from '@/ui/kit';
 
 /** The admin's list of colleagues with access to the manager's cabinet, and a form to add one. */
@@ -16,10 +16,14 @@ export default function Team() {
   const [error, setError] = useState('');
   const [added, setAdded] = useState('');
 
+  const [meId, setMeId] = useState<number | null>(null);
   const load = useCallback(() => {
     managerApi.team().then(setTeam, (e) => setLoadError((e as Error).message));
   }, []);
   useEffect(load, [load]);
+  useEffect(() => {
+    authApi.me().then((m) => setMeId(m.id), () => {});
+  }, []);
 
   const add = async () => {
     setBusy(true);
@@ -41,13 +45,7 @@ export default function Team() {
       <Card>
         <H2>Сотрудники</H2>
         {!team ? <Loading error={loadError} onRetry={load} /> : team.map((m) => (
-          <View key={m.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <View style={{ flexShrink: 1 }}>
-              <Txt style={{ fontWeight: '600' }}>{m.name}</Txt>
-              <Hint>{m.email}</Hint>
-            </View>
-            <Pill kind={m.admin ? 'acc' : 'wait'}>{m.admin ? 'Администратор' : 'Менеджер'}</Pill>
-          </View>
+          <Colleague key={m.id} m={m} isMe={m.id === meId} onChanged={load} />
         ))}
       </Card>
       <Card>
@@ -64,5 +62,61 @@ export default function Team() {
         {!!added && <Hint>{added}</Hint>}
       </Card>
     </Screen>
+  );
+}
+
+/** One colleague in the list: role, and for an admin a new password and turning access off or on. */
+function Colleague({ m, isMe, onChanged }: { m: Manager; isMe: boolean; onChanged: () => void }) {
+  const [resetting, setResetting] = useState(false);
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [note, setNote] = useState('');
+  const run = async (action: () => Promise<unknown>, done: string) => {
+    setBusy(true);
+    setError('');
+    try {
+      await action();
+      setNote(done);
+      setResetting(false);
+      setPassword('');
+      onChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <View style={{ gap: 8, paddingVertical: 4 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <View style={{ flexShrink: 1 }}>
+          <Txt style={{ fontWeight: '600' }}>{m.name}{isMe ? ' (вы)' : ''}</Txt>
+          <Hint>{m.email}</Hint>
+        </View>
+        {m.disabled
+          ? <Pill kind="bad">Доступ отключён</Pill>
+          : <Pill kind={m.admin ? 'acc' : 'wait'}>{m.admin ? 'Администратор' : 'Менеджер'}</Pill>}
+      </View>
+      {!isMe && !resetting && (
+        <Row>
+          {!m.disabled && <Button ghost title="Новый пароль" onPress={() => { setResetting(true); setNote(''); }} />}
+          <Button ghost title={m.disabled ? 'Вернуть доступ' : 'Отключить доступ'} loading={busy}
+            onPress={() => run(() => managerApi.setDisabled(m.id, !m.disabled), m.disabled ? `${m.name} снова может входить.` : `${m.name} больше не может входить, сделки остаются.`)} />
+        </Row>
+      )}
+      {resetting && (
+        <>
+          <Field label={`Новый пароль для ${m.name}, не короче 8 символов`} value={password} onChangeText={setPassword} secureTextEntry />
+          <Row>
+            <Button title="Сохранить пароль" loading={busy} disabled={password.length < 8}
+              onPress={() => run(() => managerApi.resetPassword(m.id, password), 'Пароль изменён. Передайте его сотруднику лично.')} />
+            <Button ghost title="Отмена" onPress={() => setResetting(false)} />
+          </Row>
+        </>
+      )}
+      {!!note && <Hint>{note}</Hint>}
+      {!!error && <ErrorText>{error}</ErrorText>}
+    </View>
   );
 }

@@ -7,6 +7,7 @@ import { withClientDeal } from '@/state/client-gate';
 import { useClient } from '@/state/deals';
 import { ContractText } from '@/ui/contract';
 import { Button, Card, Checkbox, ErrorText, H2, Hint, Screen, Stepper, Txt } from '@/ui/kit';
+import { ContactManager } from '@/ui/contact';
 
 export default withClientDeal(function Contract({ deal }) {
   const { step } = useClient();
@@ -53,6 +54,7 @@ export default withClientDeal(function Contract({ deal }) {
         <Button title="Перейти к подписанию" disabled={!agreed || !esignAgreed || !agreement} loading={busy} onPress={next} />
         {!!error && <ErrorText>{error}</ErrorText>}
       </Card>
+      <ContactManager deal={deal} />
     </Screen>
   );
 });
