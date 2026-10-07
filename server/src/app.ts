@@ -1,5 +1,4 @@
-import { randomUUID } from 'node:crypto';
-import { readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -26,6 +25,9 @@ export type AppOptions = {
   /** Behind a reverse proxy (Caddy): take the client's address from X-Forwarded-For. */
   trustProxy?: boolean;
 };
+
+/** Today's date in Moscow for file names, 2026-10-07. */
+const moscowDate = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' });
 
 const image = (b64: unknown) => (typeof b64 === 'string' && b64.length > 0 ? Buffer.from(b64.replace(/^data:[^,]+,/, ''), 'base64') : null);
 
@@ -184,16 +186,22 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir, backup
     const kind = (req.params as { kind: string }).kind;
     exports.useKey(String((req.query as { key?: string }).key ?? ''), kind === 'backup.db');
     if (kind === 'backup.db') {
-      const file = path.join(tmpdir(), `sdelka-${randomUUID()}.db`);
-      snapshot(db, file);
-      const data = readFileSync(file);
-      rmSync(file, { force: true });
-      const name = `sdelka-${new Date().toISOString().slice(0, 10)}.db`;
+      // A private folder (mode 0700): the copy holds passport data. Removed even when copying fails.
+      const dir = mkdtempSync(path.join(tmpdir(), 'sdelka-'));
+      let data: Buffer;
+      try {
+        const file = path.join(dir, 'copy.db');
+        snapshot(db, file);
+        data = readFileSync(file);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+      const name = `sdelka-${moscowDate()}.db`;
       return reply.type('application/vnd.sqlite3').header('Content-Disposition', `attachment; filename="${name}"`).send(data);
     }
     const csv = kind === 'payments.csv' ? exports.payments() : kind === 'deals.csv' ? exports.dealsTable() : null;
     if (!csv) return reply.code(404).send({ error: 'Не найдено' });
-    const name = `${kind === 'payments.csv' ? 'платежи' : 'сделки'}-${new Date().toISOString().slice(0, 10)}.csv`;
+    const name = `${kind === 'payments.csv' ? 'платежи' : 'сделки'}-${moscowDate()}.csv`;
     return reply.type('text/csv; charset=utf-8')
       .header('Content-Disposition', `attachment; filename="${kind}"; filename*=UTF-8''${encodeURIComponent(name)}`).send(csv);
   });

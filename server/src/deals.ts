@@ -23,6 +23,9 @@ const rubText = (n: number) => `${n.toLocaleString('ru-RU')} ₽`;
 const dayText = (d: Date) => d.toLocaleDateString('ru-RU');
 const MAX_CODE_ATTEMPTS = 5;
 const MAX_TOTAL = 10_000_000_000;
+/** Payment reminders go out between 9:00 and 20:00 Moscow time. */
+const REMIND_FROM_HOUR = 9;
+const REMIND_UNTIL_HOUR = 20;
 /** A pending bank payment younger than this blocks cancelling: the client may be on the bank's page right now. */
 const OPEN_PAYMENT_MS = 24 * 60 * 60 * 1000;
 
@@ -353,6 +356,9 @@ export class DealService {
   /** SMS reminders: three days before an installment is due, and once it is missed. Each one goes out once. */
   async sendReminders(now = new Date()) {
     const sent: { dealId: string; type: string; n: number }[] = [];
+    // Debt reminders only in the daytime, Moscow time (230-ФЗ forbids contact at night); the next hourly run catches up.
+    const hour = (now.getUTCHours() + 3) % 24;
+    if (hour < REMIND_FROM_HOUR || hour >= REMIND_UNTIL_HOUR) return sent;
     for (const d of this.list()) {
       if (d.stage !== 'active' || !d.signature) continue;
       const n = d.installmentsPaid.length + 1;
@@ -370,12 +376,14 @@ export class DealService {
       const text = type === 'reminder_soon'
         ? `${d.seller}: платёж ${n} по договору ${d.no} на ${rubText(amount)} до ${dayText(due)}.${link}`
         : `${d.seller}: платёж ${n} по договору ${d.no} на ${rubText(amount)} просрочен с ${dayText(due)}. Пожалуйста, оплатите.${link}`;
+      // Marked as sent before sending, so a run that overlaps with a slow one does not send it twice.
+      const eventId = this.log(d.id, type, { n, amount, due: due.toISOString() });
       try {
         await this.sms(d.id, d.token, d.phone, text);
       } catch {
-        continue; // not marked as sent, so the next hourly run tries again
+        this.db.prepare('DELETE FROM events WHERE id = ?').run(eventId);
+        continue; // the next hourly run tries again
       }
-      this.log(d.id, type, { n, amount, due: due.toISOString() });
       sent.push({ dealId: d.id, type, n });
     }
     return sent;

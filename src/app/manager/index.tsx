@@ -26,9 +26,11 @@ const matchesFilter = (d: Deal, f: Filter) =>
 const matchesSearch = (d: Deal, q: string) => {
   const text = q.trim().toLowerCase();
   if (!text) return true;
-  const digits = text.replace(/\D/g, '');
+  // 8 925… and +7 925… are the same number.
+  const phoneDigits = (s: string) => s.replace(/\D/g, '').replace(/^8(?=\d{3})/, '7');
+  const digits = phoneDigits(text);
   return [d.clientName, d.no, d.subject].some((v) => v.toLowerCase().includes(text))
-    || (digits.length >= 3 && d.phone.replace(/\D/g, '').includes(digits));
+    || (digits.length >= 3 && phoneDigits(d.phone).includes(digits));
 };
 
 export default function Deals() {

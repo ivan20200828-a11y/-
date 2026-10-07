@@ -30,7 +30,12 @@ if (!auth.hasManagers()) {
     app.log.fatal('На сервере нужен свой администратор: впишите в settings.env ADMIN_EMAIL и ADMIN_PASSWORD (не demo1234) и запустите снова.');
     process.exit(1);
   }
-  auth.addManager(email, process.env.ADMIN_NAME ?? 'Менеджер', password, true);
+  try {
+    auth.addManager(email, process.env.ADMIN_NAME ?? 'Менеджер', password, true);
+  } catch (e) {
+    app.log.fatal(`Не получилось создать администратора из settings.env: ${(e as Error).message}. Исправьте ADMIN_EMAIL или ADMIN_PASSWORD и запустите снова.`);
+    process.exit(1);
+  }
   app.log.info(`Создан менеджер ${email}`);
 }
 // Demo deals open by a known code, so a working server never has them.

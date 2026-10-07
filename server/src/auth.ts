@@ -30,6 +30,8 @@ function checkPassword(password: string, stored: string) {
   return timingSafeEqual(actual, expected);
 }
 
+const DUMMY_HASH = hashPassword(randomBytes(16).toString('hex'));
+
 const bearer = (authorization: string | undefined) => (authorization?.startsWith('Bearer ') ? authorization.slice(7) : '');
 
 function checkNewPassword(password: unknown) {
@@ -139,8 +141,11 @@ export class AuthService {
       | (Manager & { password: string; failed_logins: number; locked_until: string | null })
       | undefined;
     const wrong = new ApiError(401, 'Неверная почта или пароль');
-    if (!row) throw wrong;
-    if ((row as unknown as { disabled: number }).disabled === 1) throw new ApiError(403, 'Доступ отключён. Обратитесь к администратору.');
+    if (!row) {
+      // The same work as for a real account, so the response time does not tell which emails exist.
+      checkPassword(String(password ?? ''), DUMMY_HASH);
+      throw wrong;
+    }
     if (row.locked_until && new Date(row.locked_until) > new Date()) {
       throw new ApiError(429, 'Слишком много неудачных попыток. Попробуйте через 15 минут.');
     }
@@ -151,6 +156,8 @@ export class AuthService {
       throw wrong;
     }
     this.db.prepare('UPDATE managers SET failed_logins = 0, locked_until = NULL WHERE id = ?').run(row.id);
+    // Said only to someone who knows the password, so it does not reveal the account to strangers.
+    if ((row as unknown as { disabled: number }).disabled === 1) throw new ApiError(403, 'Доступ отключён. Обратитесь к администратору.');
     const token = randomBytes(32).toString('base64url');
     this.db.prepare('INSERT INTO sessions (token, manager_id, expires_at) VALUES (?, ?, ?)').run(
       token, row.id, new Date(Date.now() + SESSION_TTL_MS).toISOString());

@@ -34,12 +34,15 @@ export function dealProgress(deal: DealLike, now = new Date()) {
   return { rows, sum, next: rows.find((r) => !paid.has(r.n)), paid, overdue, isLate: (n: number) => late.some((r) => r.n === n) };
 }
 
-/** "3 дня", "21 день", "5 дней" */
-export const days = (n: number) => {
+/** Russian word form for a count: plural(5, 'платёж', 'платежа', 'платежей') → "5 платежей". */
+export const plural = (n: number, one: string, few: string, many: string) => {
   const m10 = n % 10, m100 = n % 100;
-  const w = m10 === 1 && m100 !== 11 ? 'день' : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? 'дня' : 'дней';
+  const w = m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many;
   return `${n} ${w}`;
 };
+
+/** "3 дня", "21 день", "5 дней" */
+export const days = (n: number) => plural(n, 'день', 'дня', 'дней');
 
 /** Money across all deals for the manager's summary: collected, overdue and expected soon. */
 export function portfolio(deals: (DealLike & { stage: string; downPayment?: { at: Date }; installmentsPaid: { n: number; at: Date }[] })[], now = new Date()) {

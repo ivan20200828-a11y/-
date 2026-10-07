@@ -4,7 +4,7 @@ import { Linking, View } from 'react-native';
 import { contractPdfUrl } from '@/api';
 
 import { formatDate, formatTime, rub } from '@/lib/money';
-import { days, dealProgress } from '@/lib/schedule';
+import { days, dealProgress, plural } from '@/lib/schedule';
 import { STAGE_LABEL, useDealDetails } from '@/state/deals';
 import { downAmount, PAID_BY_LABEL, type PaidBy } from '@/state/types';
 import { ContractText, ScheduleTable } from '@/ui/contract';
@@ -60,7 +60,7 @@ export default function DealDetails() {
         <Label>№ {deal.no} · создана {formatDate(deal.createdAt)}</Label>
         <H1>{deal.clientName}</H1>
         <Pill kind={deal.stage === 'active' ? 'ok' : deal.stage === 'cancelled' ? 'bad' : 'wait'}>{STAGE_LABEL[deal.stage]}</Pill>
-        {overdue && <Pill kind="bad">Просрочено {overdue.count === 1 ? '1 платёж' : `${overdue.count} платежа`} на {rub(overdue.amount)}, {days(overdue.days)}</Pill>}
+        {overdue && <Pill kind="bad">Просрочено {plural(overdue.count, 'платёж', 'платежа', 'платежей')} на {rub(overdue.amount)}, {days(overdue.days)}</Pill>}
         <KV rows={[
           ['Предмет', deal.subject],
           ['Телефон', deal.phone],

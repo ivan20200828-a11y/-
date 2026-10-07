@@ -30,8 +30,14 @@ test('payment reminders go out once before the date and once when it is missed',
   texts.length = 0;
 
   const due = addMonths(new Date(svc.byToken(token).signature!.at), 1);
-  const at = (days: number) => new Date(+due + days * 86400000);
+  // Noon in Moscow on the day `days` from the due date: reminders only go out in the daytime.
+  const at = (days: number, hour = 12) => {
+    const x = new Date(+due + days * 86400000 + 3 * 3600000);
+    return new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate(), hour - 3));
+  };
   assert.equal((await svc.sendReminders(at(-10))).length, 0, 'too early');
+  assert.equal((await svc.sendReminders(at(-2, 7))).length, 0, 'not at night');
+  assert.equal((await svc.sendReminders(at(-2, 21))).length, 0, 'not in the evening');
   assert.equal((await svc.sendReminders(at(-2)))[0].type, 'reminder_soon');
   assert.equal((await svc.sendReminders(at(-1))).length, 0, 'sent once');
   assert.match(texts[0], /платёж 1 по договору Д-\d{4}-\d{4} на 66\s666 ₽ до /);
@@ -43,4 +49,27 @@ test('payment reminders go out once before the date and once when it is missed',
 
   await svc.pay(token, 'next', 'sbp');
   assert.equal((await svc.sendReminders(at(5))).length, 0, 'nothing due after paying');
+});
+
+test('two overlapping reminder runs send one SMS', async () => {
+  let sends = 0;
+  const slow = { ...testProviders.sms, send: async () => { sends++; await new Promise((r) => setTimeout(r, 50)); } };
+  const svc = new DealService(openDb(':memory:'), { ...testProviders, sms: slow });
+  const { token } = svc.create({ clientName: 'Петров Пётр Петрович', phone: '+7 900 123-45-67', subject: 'Лодка', total: 1000000, downPct: 20, term: 12 });
+  svc.start(token);
+  await svc.sendPhoneCode(token, '+7 900 123-45-67');
+  svc.verifyPhone(token, '1234');
+  const { passport } = await svc.recognize(token, null, null);
+  svc.confirmPassport(token, passport);
+  svc.acceptContract(token, ESIGN_AGREEMENT.edition);
+  await svc.sendSignCode(token);
+  svc.verifySign(token, '1234');
+  await svc.pay(token, 'down', 'sbp');
+  const due = addMonths(new Date(svc.byToken(token).signature!.at), 1);
+  const x = new Date(+due - 86400000 + 3 * 3600000);
+  const noon = new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate(), 9));
+  sends = 0;
+  const [a, b] = await Promise.all([svc.sendReminders(noon), svc.sendReminders(noon)]);
+  assert.equal(a.length + b.length, 1);
+  assert.equal(sends, 1);
 });

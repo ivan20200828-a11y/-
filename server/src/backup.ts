@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 import type { DB } from './db.ts';
@@ -25,7 +25,11 @@ export class BackupService {
     const name = `sdelka-${now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })}.db`;
     const existing = this.list();
     if (existing.includes(name)) return null;
-    snapshot(this.db, path.join(this.dir, name));
+    // Copied under a temporary name first: a copy cut short by a crash is not taken for today's backup.
+    const part = path.join(this.dir, `${name}.part`);
+    rmSync(part, { force: true });
+    snapshot(this.db, part);
+    renameSync(part, path.join(this.dir, name));
     for (const old of [...existing, name].sort().slice(0, -this.keep)) rmSync(path.join(this.dir, old), { force: true });
     return name;
   }

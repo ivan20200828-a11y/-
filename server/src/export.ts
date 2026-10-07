@@ -21,6 +21,9 @@ export function toCsv(rows: (string | number | null | undefined)[][]) {
   return '﻿' + rows.map((r) => r.map(cell).join(';')).join('\r\n') + '\r\n';
 }
 
+/** Midnight of the Moscow calendar day; an installment is overdue from the day after its date, as in the app. */
+const startOfDay = (d: Date) => +new Date(d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' }) + 'T00:00:00+03:00');
+
 const day = (iso: string | Date) => new Date(iso).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' });
 
 /**
@@ -72,7 +75,7 @@ export class ExportService {
         const start = d.signature ? new Date(d.signature.at) : null;
         const nextN = d.stage === 'active' ? amounts.findIndex((_, i) => !paidN.has(i + 1)) + 1 : 0;
         const overdue = start && d.stage === 'active'
-          ? amounts.reduce((a, amt, i) => (!paidN.has(i + 1) && addMonths(start, i + 1) < now ? a + amt : a), 0)
+          ? amounts.reduce((a, amt, i) => (!paidN.has(i + 1) && startOfDay(addMonths(start, i + 1)) < startOfDay(now) ? a + amt : a), 0)
           : 0;
         return [d.no, day(d.createdAt), d.clientName, d.phone, d.subject, d.total, downAmount(d), d.term, STAGE[d.stage] ?? d.stage,
           paid, d.stage === 'cancelled' ? 0 : d.total - paid,
