@@ -85,10 +85,12 @@ export class DealService {
     const paid = this.db
       .prepare(`SELECT n, at, method FROM payments WHERE deal_id = ? AND kind = 'installment' ORDER BY n`)
       .all(r.id as string) as { n: number; at: string; method: PaidBy }[];
+    const last = this.db.prepare(`SELECT MAX(at) AS at FROM events WHERE deal_id = ? AND type <> 'note'`).get(r.id as string) as { at: string | null };
     return {
       id: r.id as string, no: r.no as string, token: r.token as string, seller: r.seller as string, city: r.city as string,
       subject: r.subject as string, total: r.total as number, downPct: r.down_pct as number, term: r.term as number,
       clientName: r.client_name as string, phone: r.phone as string, stage: r.stage as Stage, createdAt: r.created_at as string,
+      lastActivityAt: last.at ?? (r.created_at as string),
       passport: json<Passport>(r.passport), faceMatch: (r.face_match as number | null) ?? undefined,
       signature: json(r.signature), downPayment: json(r.down_payment), esignAgreement: json(r.esign_agreement), sellerDetails: json(r.seller_details),
       installmentsPaid: paid.map((p) => ({ n: p.n, at: p.at, method: p.method })),
@@ -179,6 +181,16 @@ export class DealService {
     });
     this.log(d.id, 'edited', { changes: Object.fromEntries(changed.map((k) => [k, { from: before[k], to: after[k] }])), ...(by ? { by } : {}) });
     return this.byId(d.id);
+  }
+
+  /** A manager's note on the deal for colleagues: a call, an agreement, a promise to pay. The client does not see it. */
+  addNote(id: string, text: string, by?: string) {
+    const d = this.byId(id);
+    const t = String(text ?? '').trim();
+    if (!t) throw new ApiError(400, 'Напишите текст заметки');
+    if (t.length > 1000) throw new ApiError(400, 'Заметка слишком длинная: не больше 1000 символов');
+    this.log(d.id, 'note', { text: t, ...(by ? { by } : {}) });
+    return d;
   }
 
   /** Address of the client's deal in the web app; null when the server does not know where the app lives. */

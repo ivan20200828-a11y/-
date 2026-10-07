@@ -308,3 +308,35 @@ test('the client downloads a statement of payments as a PDF', async () => {
   assert.equal(r.headers['content-type'], 'application/pdf');
   assert.equal(r.rawPayload.subarray(0, 5).toString(), '%PDF-');
 });
+
+test('managers leave notes on a deal; notes do not count as the client moving on', async () => {
+  const app = await setup();
+  const { id, lastActivityAt } = (await app.inject({ method: 'POST', url: '/api/deals', headers: auth, payload: newDeal })).json().deal;
+  const note = (text: unknown) => app.inject({ method: 'POST', url: `/api/deals/${id}/notes`, headers: auth, payload: { text } });
+  assert.equal((await note('  ')).statusCode, 400);
+  assert.equal((await note('x'.repeat(1001))).statusCode, 400);
+  await new Promise((r) => setTimeout(r, 5));
+  const r = await note('Позвонил, клиент начнёт вечером');
+  assert.equal(r.statusCode, 200);
+  assert.deepEqual(r.json().events.at(-1).data, { text: 'Позвонил, клиент начнёт вечером', by: 'Тест' });
+  assert.equal((await app.inject({ method: 'POST', url: `/api/deals/${id}/notes`, payload: { text: 'x' } })).statusCode, 401);
+  const deal = (await app.inject({ url: `/api/deals/${id}`, headers: auth })).json().deal;
+  assert.equal(deal.lastActivityAt, lastActivityAt);
+});
+
+test('the payment schedule downloads as a calendar file', async () => {
+  const { scheduleIcs } = await import('../src/calendar.ts');
+  const deal = {
+    id: 'd1', no: 'Д-2026-0001', token: 't', seller: 'ООО «Альфа», Москва', subject: 'Лодка; мотор', total: 120000, downPct: 20, term: 3,
+    stage: 'active', signature: { id: 's', at: '2026-01-31T09:00:00Z' }, installmentsPaid: [{ n: 1, at: '2026-02-28T09:00:00Z', method: 'sbp' }],
+  } as never;
+  const ics = scheduleIcs(deal, 'https://app.test');
+  assert.match(ics, /^BEGIN:VCALENDAR\r\n/);
+  assert.equal((ics.match(/BEGIN:VEVENT/g) ?? []).length, 2, 'paid installments are left out');
+  assert.match(ics, /DTSTART;VALUE=DATE:20260331\r\n/);
+  assert.match(ics, /DTSTART;VALUE=DATE:20260430\r\n/);
+  const unfolded = ics.replace(/\r\n /g, '');
+  assert.match(unfolded, /SUMMARY:Платёж 2 из 3: 32\s000 ₽\\, ООО «Альфа»\\, Москва\r\n/);
+  assert.match(unfolded, /Лодка\\; мотор/);
+  for (const line of ics.split('\r\n')) assert.ok(Buffer.byteLength(line) <= 75, line);
+});

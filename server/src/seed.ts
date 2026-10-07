@@ -56,6 +56,9 @@ export async function advanceDemo(live: DealService) {
     svc.db.prepare(`UPDATE payments SET at = CASE n WHEN 1 THEN ? WHEN 2 THEN ? ELSE at END WHERE deal_id = 'd139'`)
       .run(daysAgo(70), daysAgo(40));
   }
+  const ibragimovFresh = svc.byToken('demo-ibragimov').stage === 'invited';
   await walk('demo-ibragimov', 'sign');
+  // Ибрагимов accepted the contract days ago and has not signed: the manager sees him under «Застряли».
+  if (ibragimovFresh) svc.db.prepare(`UPDATE events SET at = ? WHERE deal_id = 'd142'`).run(daysAgo(4));
   await walk('demo-orlova', 'documents');
 }

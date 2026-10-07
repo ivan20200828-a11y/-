@@ -8,10 +8,11 @@ import { days, dealProgress, plural } from '@/lib/schedule';
 import { EDITABLE, STAGE_LABEL, useDealDetails } from '@/state/deals';
 import { downAmount, PAID_BY_LABEL, type PaidBy } from '@/state/types';
 import { ContractText, ScheduleTable } from '@/ui/contract';
-import { CancelDeal, InviteCard, KycPhotos, RecordPayment } from '@/ui/manager-actions';
+import { CancelDeal, InviteCard, KycPhotos, NoteForm, RecordPayment } from '@/ui/manager-actions';
 import { Button, Card, H1, H2, Hint, KV, Label, Loading, Pill, Progress, Screen, Txt } from '@/ui/kit';
 
 const EVENT_LABEL: Record<string, string> = {
+  note: 'Заметка',
   edited: 'Условия сделки изменены',
   created: 'Сделка создана, клиенту отправлено приглашение',
   started: 'Клиент открыл приглашение',
@@ -49,6 +50,7 @@ function editText(data: unknown) {
 /** "Досрочное погашение: 1 200 000 ₽, перевод · п/п № 42" for a payment event. */
 function paymentText(type: string, data: unknown) {
   if (type === 'edited') return editText(data);
+  if (type === 'note') return `: ${String((data as { text?: string } | null)?.text ?? '')}`;
   if ((type !== 'paid' && type !== 'payment_duplicate') || !data || typeof data !== 'object' || !('amount' in data)) return '';
   const p = data as { amount: number; kind?: string; method?: PaidBy; note?: string };
   return `${type === 'paid' && p.kind === 'rest' ? ' (досрочное погашение)' : ''}: ${rub(Number(p.amount))}`
@@ -91,6 +93,7 @@ export default function DealDetails() {
       <RecordPayment key={`${deal.stage}-${deal.installmentsPaid.length}`} deal={deal} onDone={reload} />
       <Card><InviteCard deal={deal} inviteUrl={inviteUrl ?? null} /></Card>
       {deal.faceMatch != null && <Card><KycPhotos deal={deal} /></Card>}
+      <Card><NoteForm dealId={deal.id} onDone={reload} /></Card>
       <Card>
         <H2>История</H2>
         {events.map((e, i) => (

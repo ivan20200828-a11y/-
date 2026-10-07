@@ -37,6 +37,8 @@ export type Deal = {
   phone: string;
   stage: Stage;
   createdAt: string;
+  /** The last thing that happened with the deal, not counting managers' notes. */
+  lastActivityAt: string;
   passport?: Passport;
   faceMatch?: number;
   signature?: { id: string; at: string };

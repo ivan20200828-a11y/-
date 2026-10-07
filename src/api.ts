@@ -16,8 +16,9 @@ export function serverTestParts() {
   return testParts;
 }
 
-type WireDeal = Omit<Deal, 'createdAt' | 'signature' | 'downPayment' | 'esignAgreement' | 'installmentsPaid'> & {
+type WireDeal = Omit<Deal, 'createdAt' | 'lastActivityAt' | 'signature' | 'downPayment' | 'esignAgreement' | 'installmentsPaid'> & {
   createdAt: string;
+  lastActivityAt: string;
   esignAgreement?: { edition: number; at: string };
   signature?: { id: string; at: string };
   downPayment?: { at: string; method: PaidBy };
@@ -40,6 +41,7 @@ function hydrate(d: WireDeal): Deal {
   return {
     ...d,
     createdAt: new Date(d.createdAt),
+    lastActivityAt: new Date(d.lastActivityAt),
     signature: d.signature && { ...d.signature, at: new Date(d.signature.at) },
     downPayment: d.downPayment && { ...d.downPayment, at: new Date(d.downPayment.at) },
     esignAgreement: d.esignAgreement && { ...d.esignAgreement, at: new Date(d.esignAgreement.at) },
@@ -96,6 +98,9 @@ export const managerApi = {
   resendInvite: async (id: string) => { await call(`/api/deals/${id}/invite`, { body: {}, manager: true }); },
   recordPayment: async (id: string, p: { what: PayWhat; method: PaidBy; note: string }) =>
     hydrate((await call<{ deal: WireDeal }>(`/api/deals/${id}/payments`, { body: p, manager: true })).deal),
+  addNote: async (id: string, text: string) => {
+    await call(`/api/deals/${id}/notes`, { body: { text }, manager: true });
+  },
   cancel: async (id: string, reason: string) =>
     hydrate((await call<{ deal: WireDeal }>(`/api/deals/${id}/cancel`, { body: { reason }, manager: true })).deal),
   team: async () => (await call<{ managers: Manager[] }>('/api/managers', { manager: true })).managers,
@@ -137,6 +142,7 @@ export async function exportUrl(kind: 'deals.csv' | 'payments.csv' | 'backup.db'
 }
 
 export const contractPdfUrl = (token: string) => `${API_URL}/api/client/${encodeURIComponent(token)}/contract.pdf`;
+export const scheduleIcsUrl = (token: string) => `${API_URL}/api/client/${encodeURIComponent(token)}/schedule.ics`;
 export const paymentsPdfUrl = (token: string) => `${API_URL}/api/client/${encodeURIComponent(token)}/payments.pdf`;
 
 export const clientApi = {

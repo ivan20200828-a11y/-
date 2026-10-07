@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Linking } from 'react-native';
 
-import { contractPdfUrl, paymentsPdfUrl } from '@/api';
+import { contractPdfUrl, paymentsPdfUrl, scheduleIcsUrl } from '@/api';
 import { formatDate, rub } from '@/lib/money';
 import { days, dealProgress } from '@/lib/schedule';
 import { withClientDeal } from '@/state/client-gate';
@@ -77,7 +77,15 @@ export default withClientDeal(function Cabinet({ deal }) {
       )}
       <Tabs items={[['sched', 'График'], ['contract', 'Договор'], ['hist', 'История']]} value={tab} onChange={setTab} />
       <Card>
-        {tab === 'sched' && <ScheduleTable deal={deal} withStatus />}
+        {tab === 'sched' && (
+          <>
+            <ScheduleTable deal={deal} withStatus />
+            {/* The phone's calendar then reminds the client the day before each payment. */}
+            {deal.installmentsPaid.length < deal.term && (
+              <Button ghost title="Добавить платежи в календарь" onPress={() => Linking.openURL(scheduleIcsUrl(deal.token)).catch(() => {})} />
+            )}
+          </>
+        )}
         {tab === 'contract' && (
           <>
             {deal.signature && <Stamp>Подписано ПЭП {formatDate(deal.signature.at)} · {deal.signature.id}</Stamp>}

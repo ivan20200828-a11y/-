@@ -34,6 +34,16 @@ export function dealProgress(deal: DealLike, now = new Date()) {
   return { rows, sum, next: rows.find((r) => !paid.has(r.n)), paid, overdue, isLate: (n: number) => late.some((r) => r.n === n) };
 }
 
+/** Days a deal in onboarding may sit without the client moving on before the manager is told to call. */
+export const STUCK_DAYS = 3;
+
+/** Whole days the client has not moved on with an unfinished deal; null when it is not stuck. */
+export function stuckDays(deal: { stage: string; lastActivityAt: Date }, now = new Date()) {
+  if (['active', 'cancelled'].includes(deal.stage)) return null;
+  const n = Math.floor((+now - +deal.lastActivityAt) / DAY);
+  return n >= STUCK_DAYS ? n : null;
+}
+
 /** Russian word form for a count: plural(5, 'платёж', 'платежа', 'платежей') → "5 платежей". */
 export const plural = (n: number, one: string, few: string, many: string) => {
   const m10 = n % 10, m100 = n % 100;

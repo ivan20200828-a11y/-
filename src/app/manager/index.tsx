@@ -4,7 +4,7 @@ import { Linking, Platform, Pressable, View } from 'react-native';
 
 import { rub } from '@/lib/money';
 import { authApi, companyApi, exportUrl, type Manager } from '@/api';
-import { days, dealProgress, portfolio } from '@/lib/schedule';
+import { days, dealProgress, portfolio, stuckDays } from '@/lib/schedule';
 import { STAGE_LABEL, useDealList } from '@/state/deals';
 import type { Deal, Stage } from '@/state/types';
 import { useColors } from '@/ui/theme';
@@ -12,12 +12,15 @@ import { Button, Card, ErrorText, Field, H2, Hint, KV, Label, Loading, Pill, Pro
 
 const pillKind = (s: Stage) => (s === 'active' ? 'ok' : s === 'cancelled' ? 'bad' : s === 'sign' || s === 'pay' ? 'warn' : 'wait');
 
-type Filter = 'all' | 'onboarding' | 'active' | 'overdue' | 'cancelled';
-const FILTERS: [Filter, string][] = [['all', 'Все'], ['onboarding', 'Оформление'], ['active', 'Платежи'], ['overdue', 'Просрочка'], ['cancelled', 'Отменённые']];
+type Filter = 'all' | 'onboarding' | 'stuck' | 'active' | 'overdue' | 'cancelled';
+const FILTERS: [Filter, string][] = [
+  ['all', 'Все'], ['onboarding', 'Оформление'], ['stuck', 'Застряли'], ['active', 'Платежи'], ['overdue', 'Просрочка'], ['cancelled', 'Отменённые'],
+];
 
 const matchesFilter = (d: Deal, f: Filter) =>
   f === 'all' ? true
   : f === 'overdue' ? !!dealProgress(d).overdue
+  : f === 'stuck' ? stuckDays(d) != null
   : f === 'active' ? d.stage === 'active'
   : f === 'cancelled' ? d.stage === 'cancelled'
   : d.stage !== 'active' && d.stage !== 'cancelled';
@@ -89,6 +92,7 @@ export default function Deals() {
                   {overdue
                     ? <Pill kind="bad">Просрочка {days(overdue.days)}</Pill>
                     : <Pill kind={pillKind(d.stage)}>{STAGE_LABEL[d.stage]}</Pill>}
+                  {stuckDays(d) != null && <Pill kind="warn">Нет движения {days(stuckDays(d)!)}</Pill>}
                 </View>
                 <Txt style={{ fontWeight: '600' }}>{d.clientName}</Txt>
                 <Hint>{d.subject}</Hint>

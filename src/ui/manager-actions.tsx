@@ -169,3 +169,33 @@ export function RecordPayment({ deal, onDone }: { deal: Deal; onDone: () => void
     </Card>
   );
 }
+
+/** A note for colleagues about the deal: a call, an agreement, a promise to pay. The client does not see notes. */
+export function NoteForm({ dealId, onDone }: { dealId: string; onDone: () => void }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const save = async () => {
+    if (busy || !text.trim()) return;
+    setBusy(true);
+    setError('');
+    try {
+      await managerApi.addNote(dealId, text.trim());
+      setText('');
+      onDone();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <H2>Заметка</H2>
+      <Field label="Текст заметки" value={text} onChangeText={setText} multiline placeholder="Например: позвонил, клиент закончит оформление вечером" />
+      <Button ghost title="Добавить заметку" onPress={save} loading={busy} disabled={!text.trim()} />
+      <Hint>Заметки видят только сотрудники, клиенту они не показываются.</Hint>
+      {!!error && <ErrorText>{error}</ErrorText>}
+    </>
+  );
+}

@@ -9,6 +9,7 @@ import { AuthService, type Manager } from './auth.ts';
 import { snapshot, type BackupService } from './backup.ts';
 import { RateLimiter } from './rate-limit.ts';
 import { contractPdf, paymentsPdf } from './contract-pdf.ts';
+import { scheduleIcs } from './calendar.ts';
 import type { DB } from './db.ts';
 import { ESIGN_AGREEMENT } from './esign.ts';
 import { ApiError, DealService, type NewDeal } from './deals.ts';
@@ -106,6 +107,11 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir, backup
       return { deal, events: deals.events(id), inviteUrl: deals.inviteUrl(deal.token) };
     });
     m.put('/api/deals/:id', async (req) => ({ deal: deals.update((req.params as { id: string }).id, req.body as NewDeal, who(req).name) }));
+    m.post('/api/deals/:id/notes', async (req) => {
+      const id = (req.params as { id: string }).id;
+      deals.addNote(id, String((req.body as { text?: string } | null)?.text ?? ''), who(req).name);
+      return { events: deals.events(id) };
+    });
     m.get('/api/deals/:id/kyc', async (req) => ({ images: deals.kycImages((req.params as { id: string }).id) }));
     m.post('/api/deals/:id/invite', async (req) => ({ deal: await deals.resendInvite((req.params as { id: string }).id, who(req).name) }));
     m.post('/api/deals/:id/cancel', async (req) =>
@@ -161,6 +167,12 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir, backup
     reply.header('Content-Type', 'application/pdf');
     reply.header('Content-Disposition', `inline; filename="spravka-${encodeURIComponent(deal.no)}.pdf"`);
     return reply.send(await paymentsPdf(deal, deals.company.get()));
+  });
+  app.get('/api/client/:token/schedule.ics', async (req, reply) => {
+    const deal = deals.byToken((req.params as P).token);
+    reply.header('Content-Type', 'text/calendar; charset=utf-8');
+    reply.header('Content-Disposition', `inline; filename="platezhi-${encodeURIComponent(deal.no)}.ics"`);
+    return scheduleIcs(deal, deals.appUrl);
   });
   app.post('/api/client/:token/start', async (req) => ({ deal: deals.start((req.params as P).token) }));
   app.post('/api/client/:token/phone/send', async (req) =>
