@@ -91,7 +91,10 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir, backup
       if (req.method === 'OPTIONS') return;
       (req as unknown as { manager: Manager }).manager = auth.check(req.headers.authorization);
     });
-    m.get('/api/auth/me', async (req) => ({ manager: (req as unknown as { manager: Manager }).manager }));
+    m.get('/api/auth/me', async (req) => {
+      const manager = (req as unknown as { manager: Manager }).manager;
+      return { manager: { ...manager, knownPassword: auth.hasKnownPassword(manager.id) } };
+    });
     m.get('/api/deals', async () => ({ deals: deals.list() }));
     const who = (req: unknown) => (req as { manager: Manager }).manager;
     m.post('/api/deals', async (req, reply) => reply.code(201).send({ deal: deals.create(req.body as NewDeal, {}, who(req).name) }));

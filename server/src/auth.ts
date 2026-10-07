@@ -15,6 +15,8 @@ const toManager = (r: { id: number; email: string; name: string; admin: number; 
 
 const COLS = 'id, email, name, admin, disabled';
 const PASSWORD_MIN = 8;
+/** Passwords printed in the instructions and the demo; on a working server they must be changed. */
+export const KNOWN_PASSWORDS = ['demo1234'];
 
 function hashPassword(password: string) {
   const salt = randomBytes(16);
@@ -120,6 +122,12 @@ export class AuthService {
 
   private activeAdmins() {
     return (this.db.prepare('SELECT COUNT(*) AS c FROM managers WHERE admin = 1 AND disabled = 0').get() as { c: number }).c;
+  }
+
+  /** True when the manager still signs in with a password from the instructions. */
+  hasKnownPassword(id: number) {
+    const r = this.db.prepare('SELECT password FROM managers WHERE id = ?').get(id) as { password: string } | undefined;
+    return !!r && KNOWN_PASSWORDS.some((p) => checkPassword(p, r.password));
   }
 
   hasManagers() {

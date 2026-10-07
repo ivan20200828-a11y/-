@@ -101,3 +101,15 @@ test('a deal needs a sensible down payment and installments of at least 1 ₽', 
   }
   assert.equal((await create({})).statusCode, 201);
 });
+
+test('the app tells a manager who still uses the password from the instructions', async () => {
+  const { app, auth } = buildApp({ db: openDb(':memory:'), providers: testProviders });
+  auth.addManager('demo@test.ru', 'Демо', 'demo1234', true);
+  auth.addManager('own@test.ru', 'Свой', 'own-pass-123', false);
+  const me = async (email: string, password: string) => {
+    const token = (await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password } })).json().token;
+    return (await app.inject({ url: '/api/auth/me', headers: { authorization: `Bearer ${token}` } })).json().manager.knownPassword;
+  };
+  assert.equal(await me('demo@test.ru', 'demo1234'), true);
+  assert.equal(await me('own@test.ru', 'own-pass-123'), false);
+});

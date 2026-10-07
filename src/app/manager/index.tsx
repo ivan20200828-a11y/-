@@ -57,6 +57,13 @@ export default function Deals() {
           <Button ghost title="Выйти" onPress={async () => { await authApi.logout(); router.replace('/manager/login'); }} />
         </Row>
       </Card>
+      {me?.knownPassword && (
+        <Card>
+          <Txt style={{ fontWeight: '600' }}>Смените пароль</Txt>
+          <Hint>Вы входите с паролем из инструкции. Его знает любой, кто её видел, поэтому перед работой с клиентами задайте свой.</Hint>
+          <Button title="Сменить пароль" onPress={() => router.push('/manager/password')} />
+        </Card>
+      )}
       {missing.length > 0 && (
         <Card>
           <Txt style={{ fontWeight: '600' }}>Заполните реквизиты компании</Txt>

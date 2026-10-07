@@ -34,7 +34,7 @@ export class ApiError extends Error {
   }
 }
 
-export type Manager = { id: number; email: string; name: string; admin: boolean; disabled: boolean };
+export type Manager = { id: number; email: string; name: string; admin: boolean; disabled: boolean; knownPassword?: boolean };
 
 function hydrate(d: WireDeal): Deal {
   return {
