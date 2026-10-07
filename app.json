@@ -22,7 +22,11 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "ru.sdelka.online"
+      "package": "ru.sdelka.online",
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
     },
     "web": {
       "output": "single",
@@ -42,7 +46,8 @@
         "expo-image-picker",
         {
           "cameraPermission": "Камера нужна, чтобы сфотографировать паспорт и сделать селфи для проверки личности.",
-          "photosPermission": "Доступ к фото нужен, чтобы загрузить фото паспорта."
+          "photosPermission": "Доступ к фото нужен, чтобы загрузить фото паспорта.",
+          "microphonePermission": false
         }
       ]
     ],

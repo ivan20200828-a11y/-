@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 
+import { serverUrl } from '@/api';
 import { DEMO_TOKEN, useClient } from '@/state/deals';
 import { Button, Card, Field, H1, H2, Hint, Screen } from '@/ui/kit';
 
@@ -30,6 +31,12 @@ export default function Home() {
         <Hint>Создавать сделки и следить, на каком этапе клиент.</Hint>
         <Button ghost title="Открыть список сделок" onPress={() => router.push('/manager')} />
       </Card>
+      {serverUrl.canChange && (
+        <Card>
+          <Hint>Сервер: {serverUrl.get()}</Hint>
+          <Button ghost title="Изменить адрес сервера" onPress={() => router.push('/server')} />
+        </Card>
+      )}
     </Screen>
   );
 }

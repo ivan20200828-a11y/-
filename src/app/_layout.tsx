@@ -1,15 +1,25 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { useColorScheme } from 'react-native';
+
+import { serverUrl } from '@/api';
 
 import { ClientProvider } from '@/state/deals';
 
 export default function RootLayout() {
   const scheme = useColorScheme();
+  // On a phone the server address may have been changed in the app; read it before the first request.
+  const [ready, setReady] = useState(!serverUrl.canChange);
+  useEffect(() => {
+    if (!ready) serverUrl.load().finally(() => setReady(true));
+  }, [ready]);
+  if (!ready) return null;
   return (
     <ThemeProvider value={scheme === 'dark' ? DarkTheme : DefaultTheme}>
       <ClientProvider>
         <Stack screenOptions={{ headerBackTitle: 'Назад' }}>
           <Stack.Screen name="index" options={{ title: 'Сделка онлайн' }} />
+          <Stack.Screen name="server" options={{ title: 'Адрес сервера' }} />
           <Stack.Screen name="client/index" options={{ title: 'Ваша сделка' }} />
           <Stack.Screen name="client/phone" options={{ title: 'Телефон' }} />
           <Stack.Screen name="client/documents" options={{ title: 'Документы' }} />

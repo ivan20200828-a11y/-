@@ -28,5 +28,8 @@ function stored(key: string) {
 /** The manager's sign-in token. */
 export const session = stored('manager-session');
 
+/** A server address chosen in the app instead of the built-in one. */
+export const savedServerUrl = stored('server-url');
+
 /** The client's deal token from the invitation, so a refresh or the bank's return opens the same deal. */
 export const clientDealToken = stored('client-deal');

@@ -1,12 +1,42 @@
-import { session } from '@/lib/session';
-import type { Company, Deal, PaidBy, Passport, PayMethod, PayWhat } from '@/state/types';
+import { Platform } from 'react-native';
 
-/** Server address. Set EXPO_PUBLIC_API_URL when the server runs elsewhere (a phone cannot reach "localhost" on your computer). */
-export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+import { savedServerUrl, session } from '@/lib/session';
+import type { Company, Deal, PaidBy, Passport, PayMethod, PayWhat } from '@/state/types';
 
 export type TestPart = 'sms' | 'kyc' | 'payments';
 
+/** Server address built into the app. Set EXPO_PUBLIC_API_URL when the server runs elsewhere (a phone cannot reach "localhost" on your computer). */
+const BUILT_IN_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+let API_URL = BUILT_IN_URL;
 let testParts: Promise<TestPart[]> | null = null;
+
+/**
+ * The server the phone app talks to. The built-in address can be replaced in the app («Адрес сервера» on the home
+ * screen), so one installed build works with a test server on a computer in the office Wi-Fi or with a new domain.
+ * The web build is served by the server itself and always uses its own address.
+ */
+export const serverUrl = {
+  get: () => API_URL,
+  builtIn: BUILT_IN_URL,
+  canChange: Platform.OS !== 'web',
+  async load() {
+    if (Platform.OS === 'web') return;
+    API_URL = (await savedServerUrl.get()) ?? BUILT_IN_URL;
+  },
+  /** Checks that a server answers at `url` and switches to it; null goes back to the built-in address. */
+  async set(url: string | null) {
+    const next = url ? url.trim().replace(/\/+$/, '') : BUILT_IN_URL;
+    if (url) {
+      if (!/^https?:\/\/[^\s/]+/.test(next)) throw new Error('Адрес начинается с http:// или https://, например http://192.168.1.10:3000');
+      const ok = await fetch(`${next}/api/health`).then((r) => r.ok, () => false);
+      if (!ok) throw new Error('Сервер по этому адресу не отвечает. Проверьте адрес и что телефон в той же сети.');
+    }
+    API_URL = next;
+    testParts = null;
+    await savedServerUrl.set(url ? next : null);
+  },
+};
+
 /** Which services the server still imitates (SMS, identity check, payments); asked once per app start. */
 export function serverTestParts() {
   testParts ??= fetch(`${API_URL}/api/health`)
