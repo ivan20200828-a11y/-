@@ -263,3 +263,48 @@ test('the client repays everything left early in one payment', async () => {
   assert.equal(paid.data.amount, amounts.slice(1).reduce((a, x) => a + x, 0));
   assert.equal((await app.inject({ method: 'POST', url: `${c}/pay`, payload: { what: 'rest', method: 'sbp' } })).statusCode, 409, 'nothing left to pay');
 });
+
+test('a manager corrects a deal until the client accepts the contract', async () => {
+  const app = await setup();
+  const { id, token } = (await app.inject({ method: 'POST', url: '/api/deals', headers: auth, payload: newDeal })).json().deal;
+  const edit = (patch: object) => app.inject({ method: 'PUT', url: `/api/deals/${id}`, headers: auth, payload: { ...newDeal, ...patch } });
+  const c = `/api/client/${token}`;
+  const post = (url: string, payload: object = {}) => app.inject({ method: 'POST', url: `${c}${url}`, payload });
+
+  const fixed = (await edit({ phone: '+7 900 765-43-21', total: 1200000 })).json().deal;
+  assert.equal(fixed.phone, '+7 900 765-43-21');
+  assert.equal(fixed.total, 1200000);
+  assert.equal((await edit({ downPct: 100 })).statusCode, 400, 'the same rules as for a new deal');
+  assert.equal((await app.inject({ method: 'PUT', url: `/api/deals/${id}`, payload: newDeal })).statusCode, 401);
+
+  await post('/start');
+  assert.equal((await edit({ total: 1200000, phone: '+7 900 000-00-00' })).statusCode, 409, 'the client confirms the phone now');
+  await post('/phone/send', { phone: '+7 900 765-43-21' });
+  await post('/phone/verify', { code: '1234' });
+  const { passport } = (await post('/kyc', {})).json();
+  assert.equal((await post('/passport', { passport })).statusCode, 200);
+  const deal = (await app.inject({ url: c })).json().deal;
+  const seen = `${deal.subject}|${deal.total}|${deal.downPct}|${deal.term}`;
+  assert.equal((await edit({ phone: '+7 900 765-43-21', total: 1200000, clientName: 'Другой' })).statusCode, 409, 'the name comes from the passport now');
+  const afterKyc = { phone: '+7 900 765-43-21', clientName: deal.passport.fio };
+  assert.equal((await edit({ ...afterKyc, total: 1200000, term: 6 })).statusCode, 200);
+  const stale = await post('/contract/accept', { esignEdition: 1, terms: seen });
+  assert.equal(stale.statusCode, 409, 'the client read other terms');
+  const now = (await app.inject({ url: c })).json().deal;
+  assert.equal((await post('/contract/accept', { esignEdition: 1, terms: `${now.subject}|${now.total}|${now.downPct}|${now.term}` })).statusCode, 200);
+  assert.equal((await edit({ ...afterKyc, total: 1300000, term: 6 })).statusCode, 409, 'accepted terms stay');
+
+  const events = (await app.inject({ url: `/api/deals/${id}`, headers: auth })).json().events;
+  const edited = events.filter((e: { type: string }) => e.type === 'edited');
+  assert.equal(edited.length, 2);
+  assert.deepEqual(edited[0].data.changes.total, { from: 1000000, to: 1200000 });
+});
+
+test('the client downloads a statement of payments as a PDF', async () => {
+  const app = await setup();
+  const { token } = (await app.inject({ method: 'POST', url: '/api/deals', headers: auth, payload: newDeal })).json().deal;
+  const r = await app.inject({ url: `/api/client/${token}/payments.pdf` });
+  assert.equal(r.statusCode, 200);
+  assert.equal(r.headers['content-type'], 'application/pdf');
+  assert.equal(r.rawPayload.subarray(0, 5).toString(), '%PDF-');
+});

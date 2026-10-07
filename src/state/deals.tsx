@@ -121,6 +121,9 @@ export function useDealDetails(id: string) {
   return { ...data, error, reload };
 }
 
+/** Stages in which the manager can still correct the deal: until the client accepts the contract. */
+export const EDITABLE: Stage[] = ['invited', 'phone', 'documents', 'contract'];
+
 export const STAGE_LABEL: Record<Stage, string> = {
   invited: 'Приглашение отправлено',
   phone: 'Подтверждает телефон',

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Linking } from 'react-native';
 
-import { contractPdfUrl } from '@/api';
+import { contractPdfUrl, paymentsPdfUrl } from '@/api';
 import { formatDate, rub } from '@/lib/money';
 import { days, dealProgress } from '@/lib/schedule';
 import { withClientDeal } from '@/state/client-gate';
@@ -86,10 +86,14 @@ export default withClientDeal(function Cabinet({ deal }) {
           </>
         )}
         {tab === 'hist' && (
-          <KV rows={[
-            ...(deal.downPayment ? [[`${formatDate(deal.downPayment.at)} · взнос, ${PAID_BY_LABEL[deal.downPayment.method]}`, rub(downAmount(deal))] as [string, string]] : []),
-            ...deal.installmentsPaid.map((p) => [`${formatDate(p.at)} · платёж ${p.n}, ${PAID_BY_LABEL[p.method] ?? 'СБП'}`, rub(rows[p.n - 1].amount)] as [string, string]),
-          ]} />
+          <>
+            <KV rows={[
+              ...(deal.downPayment ? [[`${formatDate(deal.downPayment.at)} · взнос, ${PAID_BY_LABEL[deal.downPayment.method]}`, rub(downAmount(deal))] as [string, string]] : []),
+              ...deal.installmentsPaid.map((p) => [`${formatDate(p.at)} · платёж ${p.n}, ${PAID_BY_LABEL[p.method] ?? 'СБП'}`, rub(rows[p.n - 1].amount)] as [string, string]),
+            ]} />
+            {/* For a bank, a tax deduction or a dispute: what is paid and what is left, on the seller's behalf. */}
+            <Button ghost title="Справка об оплате в PDF" onPress={() => Linking.openURL(paymentsPdfUrl(deal.token)).catch(() => {})} />
+          </>
         )}
       </Card>
       <ContactManager deal={deal} />

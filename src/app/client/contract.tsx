@@ -25,7 +25,9 @@ export default withClientDeal(function Contract({ deal }) {
   const next = async () => {
     if (!agreement) return;
     setBusy(true);
-    const err = await step('contract/accept', { esignEdition: agreement.edition });
+    // The terms shown, so the server can refuse if the manager changed them meanwhile.
+    const terms = `${deal.subject}|${deal.total}|${deal.downPct}|${deal.term}`;
+    const err = await step('contract/accept', { esignEdition: agreement.edition, terms });
     setBusy(false);
     if (err) return setError(err);
     router.push('/client/sign');

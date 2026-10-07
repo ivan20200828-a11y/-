@@ -28,15 +28,92 @@ function buyerRequisites(deal: Deal) {
   ].filter(Boolean) as string[];
 }
 
-/** `fallback` is the current company, for deals created before details were stored with the deal. */
-export function contractPdf(deal: Deal, fallback?: Company): Promise<Buffer> {
-  const seller = deal.sellerDetails ?? { ...(fallback as Company), name: deal.seller, city: deal.city };
-  const doc = new PDFDocument({ size: 'A4', margin: 56, info: { Title: `Договор № ${deal.no}` } });
+/** An A4 document with the Cyrillic fonts registered; `done` resolves to the file once `doc.end()` is called. */
+function newDoc(title: string) {
+  const doc = new PDFDocument({ size: 'A4', margin: 56, info: { Title: title } });
   doc.registerFont('regular', path.join(FONT_DIR, 'DejaVuSerif.ttf'));
   doc.registerFont('bold', path.join(FONT_DIR, 'DejaVuSerif-Bold.ttf'));
   const chunks: Buffer[] = [];
   doc.on('data', (c: Buffer) => chunks.push(c));
   const done = new Promise<Buffer>((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));
+  return { doc, done };
+}
+
+/** A table row on fixed columns that moves to a new page near the bottom. */
+function tableRow(doc: PDFKit.PDFDocument, cols: { x: number; width: number; align?: 'left' | 'right' }[], cells: string[], bold = false) {
+  if (doc.y > doc.page.height - doc.page.margins.bottom - 20) doc.addPage();
+  const y = doc.y;
+  doc.font(bold ? 'bold' : 'regular');
+  let bottom = y;
+  cells.forEach((cell, i) => {
+    doc.text(cell, cols[i].x, y, { width: cols[i].width, align: cols[i].align ?? 'left' });
+    bottom = Math.max(bottom, doc.y);
+  });
+  doc.x = doc.page.margins.left;
+  doc.y = bottom;
+  doc.moveDown(0.25);
+}
+
+const METHOD: Record<string, string> = { sbp: 'СБП', card: 'карта', transfer: 'перевод по реквизитам', cash: 'наличные' };
+
+/**
+ * A statement of what the buyer has paid under the contract and what is left, for the client's records
+ * (a bank, a tax deduction, a dispute). Built from the payments recorded in the app.
+ */
+export function paymentsPdf(deal: Deal, fallback?: Company, now = new Date()): Promise<Buffer> {
+  const seller = deal.sellerDetails ?? { ...(fallback as Company), name: deal.seller, city: deal.city };
+  const { doc, done } = newDoc(`Справка об оплате по договору № ${deal.no}`);
+  const down = downAmount(deal);
+  const amounts = installmentAmounts(deal);
+  const start = deal.signature ? new Date(deal.signature.at) : now;
+
+  const paid: { at: Date; what: string; amount: number; method: string }[] = [];
+  if (deal.downPayment) paid.push({ at: new Date(deal.downPayment.at), what: 'Первоначальный взнос', amount: down, method: deal.downPayment.method });
+  for (const p of [...deal.installmentsPaid].sort((a, b) => a.n - b.n)) {
+    paid.push({ at: new Date(p.at), what: `Платёж ${p.n} из ${deal.term}`, amount: amounts[p.n - 1], method: p.method });
+  }
+  const total = paid.reduce((a, p) => a + p.amount, 0);
+  const left = deal.total - total;
+
+  doc.font('bold').fontSize(12).text('СПРАВКА ОБ ОПЛАТЕ', { align: 'center' }).moveDown(0.3)
+    .font('regular').fontSize(10.5).text(`по договору купли-продажи с рассрочкой платежа № ${deal.no}`, { align: 'center' }).moveDown(0.8);
+  doc.text(`Дата справки: ${date(now)}`).moveDown(0.4);
+  doc.text(`Продавец: ${seller.name}${seller.inn ? `, ИНН ${seller.inn}` : ''}`);
+  doc.text(`Покупатель: ${deal.passport?.fio ?? deal.clientName}`);
+  doc.text(`Предмет договора: ${deal.subject}`);
+  doc.text(`Цена по договору: ${rub(deal.total)}${deal.signature ? `, договор подписан ${date(start)}` : ''}`).moveDown(0.8);
+
+  const x = doc.page.margins.left;
+  const cols = [{ x, width: 80 }, { x: x + 84, width: 150 }, { x: x + 238, width: 130 }, { x: x + 372, width: 110, align: 'right' as const }];
+  doc.font('bold').text('Поступившие платежи').moveDown(0.3);
+  if (paid.length) {
+    tableRow(doc, cols, ['Дата', 'Назначение', 'Способ', 'Сумма'], true);
+    for (const p of paid) tableRow(doc, cols, [date(p.at), p.what, METHOD[p.method] ?? p.method, rub(p.amount)]);
+  } else {
+    doc.font('regular').text('Платежей по договору пока не поступало.');
+  }
+  doc.moveDown(0.6).font('bold').text(`Всего оплачено: ${rub(total)}`);
+  if (left > 0) {
+    const nextN = deal.installmentsPaid.length + 1;
+    doc.font('regular').text(`Остаток к оплате: ${rub(left)}`);
+    if (deal.downPayment && nextN <= deal.term) {
+      const due = addMonths(start, nextN);
+      const late = date(due) !== date(now) && due < now;
+      doc.text(`Следующий платёж: ${rub(amounts[nextN - 1])} до ${date(due)}${late ? ' (срок прошёл)' : ''}`);
+    }
+  } else {
+    doc.font('regular').text('Обязательства Покупателя по оплате цены договора исполнены полностью. Задолженности нет.');
+  }
+  doc.moveDown(1.2).text(`${seller.name}`).fillColor('#666666').fontSize(9)
+    .text('Справка сформирована автоматически по данным о платежах в приложении «Сделка онлайн».');
+  doc.end();
+  return done;
+}
+
+/** `fallback` is the current company, for deals created before details were stored with the deal. */
+export function contractPdf(deal: Deal, fallback?: Company): Promise<Buffer> {
+  const seller = deal.sellerDetails ?? { ...(fallback as Company), name: deal.seller, city: deal.city };
+  const { doc, done } = newDoc(`Договор № ${deal.no}`);
 
   const p = deal.passport;
   const down = downAmount(deal);
@@ -70,17 +147,8 @@ export function contractPdf(deal: Deal, fallback?: Company): Promise<Buffer> {
 
   doc.moveDown(0.4).font('bold').text('Приложение № 1. График платежей').moveDown(0.4).font('regular');
   const x = doc.page.margins.left;
-  const cols = [x, x + 40, x + 200];
-  const row = (cells: string[], bold = false) => {
-    if (doc.y > doc.page.height - doc.page.margins.bottom - 20) doc.addPage();
-    const y = doc.y;
-    doc.font(bold ? 'bold' : 'regular');
-    doc.text(cells[0], cols[0], y, { width: 36 });
-    doc.text(cells[1], cols[1], y, { width: 150 });
-    doc.text(cells[2], cols[2], y, { width: 120, align: 'right' });
-    doc.x = x;
-    doc.moveDown(0.25);
-  };
+  const cols = [{ x, width: 36 }, { x: x + 40, width: 150 }, { x: x + 200, width: 120, align: 'right' as const }];
+  const row = (cells: string[], bold = false) => tableRow(doc, cols, cells, bold);
   row(['№', 'Дата', 'Сумма'], true);
   row(['0', 'взнос', rub(down)]);
   installmentAmounts(deal).forEach((amount, i) => row([String(i + 1), date(addMonths(start, i + 1)), rub(amount)]));

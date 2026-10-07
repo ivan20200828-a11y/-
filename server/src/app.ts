@@ -8,7 +8,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { AuthService, type Manager } from './auth.ts';
 import { snapshot, type BackupService } from './backup.ts';
 import { RateLimiter } from './rate-limit.ts';
-import { contractPdf } from './contract-pdf.ts';
+import { contractPdf, paymentsPdf } from './contract-pdf.ts';
 import type { DB } from './db.ts';
 import { ESIGN_AGREEMENT } from './esign.ts';
 import { ApiError, DealService, type NewDeal } from './deals.ts';
@@ -105,6 +105,7 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir, backup
       const deal = deals.byId(id);
       return { deal, events: deals.events(id), inviteUrl: deals.inviteUrl(deal.token) };
     });
+    m.put('/api/deals/:id', async (req) => ({ deal: deals.update((req.params as { id: string }).id, req.body as NewDeal, who(req).name) }));
     m.get('/api/deals/:id/kyc', async (req) => ({ images: deals.kycImages((req.params as { id: string }).id) }));
     m.post('/api/deals/:id/invite', async (req) => ({ deal: await deals.resendInvite((req.params as { id: string }).id, who(req).name) }));
     m.post('/api/deals/:id/cancel', async (req) =>
@@ -155,6 +156,12 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir, backup
     reply.header('Content-Disposition', `inline; filename="dogovor-${encodeURIComponent(deal.no)}.pdf"`);
     return reply.send(await contractPdf(deal, deals.company.get()));
   });
+  app.get('/api/client/:token/payments.pdf', async (req, reply) => {
+    const deal = deals.byToken((req.params as P).token);
+    reply.header('Content-Type', 'application/pdf');
+    reply.header('Content-Disposition', `inline; filename="spravka-${encodeURIComponent(deal.no)}.pdf"`);
+    return reply.send(await paymentsPdf(deal, deals.company.get()));
+  });
   app.post('/api/client/:token/start', async (req) => ({ deal: deals.start((req.params as P).token) }));
   app.post('/api/client/:token/phone/send', async (req) =>
     ({ deal: await deals.sendPhoneCode((req.params as P).token, body<{ phone: string }>(req).phone) }));
@@ -168,7 +175,8 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir, backup
     ({ deal: deals.confirmPassport((req.params as P).token, body<{ passport: Passport }>(req).passport) }));
   app.get('/api/esign-agreement', async () => ESIGN_AGREEMENT);
   app.post('/api/client/:token/contract/accept', async (req) =>
-    ({ deal: deals.acceptContract((req.params as P).token, Number(body<{ esignEdition?: number }>(req).esignEdition)) }));
+    ({ deal: deals.acceptContract((req.params as P).token, Number(body<{ esignEdition?: number }>(req).esignEdition),
+      body<{ terms?: string }>(req).terms === undefined ? undefined : String(body<{ terms?: string }>(req).terms)) }));
   app.post('/api/client/:token/sign/send', async (req) => ({ deal: await deals.sendSignCode((req.params as P).token) }));
   app.post('/api/client/:token/sign/verify', async (req) =>
     ({ deal: deals.verifySign((req.params as P).token, body<{ code: string }>(req).code) }));

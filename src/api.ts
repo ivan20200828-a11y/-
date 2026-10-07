@@ -105,9 +105,13 @@ export const managerApi = {
     (await call<{ manager: Manager }>(`/api/managers/${id}/password`, { body: { password }, manager: true })).manager,
   setDisabled: async (id: number, disabled: boolean) =>
     (await call<{ manager: Manager }>(`/api/managers/${id}/disabled`, { body: { disabled }, manager: true })).manager,
-  create: async (d: Pick<Deal, 'clientName' | 'phone' | 'subject' | 'total' | 'downPct' | 'term'>) =>
-    hydrate((await call<{ deal: WireDeal }>('/api/deals', { body: d, manager: true })).deal),
+  create: async (d: DealTerms) => hydrate((await call<{ deal: WireDeal }>('/api/deals', { body: d, manager: true })).deal),
+  update: async (id: string, d: DealTerms) =>
+    hydrate((await call<{ deal: WireDeal }>(`/api/deals/${id}`, { method: 'PUT', body: d, manager: true })).deal),
 };
+
+/** What a manager enters for a deal. */
+export type DealTerms = Pick<Deal, 'clientName' | 'phone' | 'subject' | 'total' | 'downPct' | 'term'>;
 
 export type Payment = { id: string; status: 'pending' | 'paid' | 'failed'; url?: string };
 
@@ -133,6 +137,7 @@ export async function exportUrl(kind: 'deals.csv' | 'payments.csv' | 'backup.db'
 }
 
 export const contractPdfUrl = (token: string) => `${API_URL}/api/client/${encodeURIComponent(token)}/contract.pdf`;
+export const paymentsPdfUrl = (token: string) => `${API_URL}/api/client/${encodeURIComponent(token)}/payments.pdf`;
 
 export const clientApi = {
   get: async (token: string) => hydrate((await call<{ deal: WireDeal }>(`/api/client/${token}`)).deal),

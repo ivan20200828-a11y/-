@@ -48,6 +48,22 @@ export function installmentAmounts(d: Pick<Deal, 'total' | 'downPct' | 'term'>) 
   return Array.from({ length: d.term }, (_, i) => (i < d.term - 1 ? base : rest - base * (d.term - 1)));
 }
 
+/** The terms a manager enters; the same rules apply when creating a deal and when correcting it. */
+function validateDeal(n: NewDeal) {
+  if (typeof n.clientName !== 'string' || typeof n.subject !== 'string' || !n.clientName.trim() || !n.subject.trim()) {
+    throw new ApiError(400, 'Укажите ФИО клиента и предмет сделки');
+  }
+  if (n.clientName.length > 200 || n.subject.length > 300) throw new ApiError(400, 'ФИО или предмет сделки слишком длинные');
+  if (!isRussianPhone(n.phone)) throw new ApiError(400, 'Укажите российский номер телефона клиента полностью, например +7 900 123-45-67');
+  if (!Number.isInteger(n.total) || n.total <= 0 || n.total > MAX_TOTAL) throw new ApiError(400, 'Стоимость должна быть целым числом рублей больше нуля и не больше 10 млрд');
+  if (!Number.isInteger(n.downPct) || n.downPct < 1 || n.downPct > 99) throw new ApiError(400, 'Взнос указывается в процентах от 1 до 99');
+  if (!Number.isInteger(n.term) || n.term < 1 || n.term > 120) throw new ApiError(400, 'Срок рассрочки от 1 до 120 месяцев');
+  if (n.total - downAmount(n) < n.term) throw new ApiError(400, 'Сумма рассрочки слишком мала для такого срока: каждый платёж должен быть не меньше 1 ₽');
+}
+
+/** The terms the client reads in the contract, compared when they accept it. */
+export const termsKey = (d: Pick<Deal, 'subject' | 'total' | 'downPct' | 'term'>) => `${d.subject}|${d.total}|${d.downPct}|${d.term}`;
+
 export type NewDeal = { clientName: string; phone: string; subject: string; total: number; downPct: number; term: number };
 
 export class DealService {
@@ -118,15 +134,7 @@ export class DealService {
   }
 
   create(n: NewDeal, opts: { id?: string; token?: string; createdAt?: string } = {}, by?: string): Deal {
-    if (typeof n.clientName !== 'string' || typeof n.subject !== 'string' || !n.clientName.trim() || !n.subject.trim()) {
-      throw new ApiError(400, 'Укажите ФИО клиента и предмет сделки');
-    }
-    if (n.clientName.length > 200 || n.subject.length > 300) throw new ApiError(400, 'ФИО или предмет сделки слишком длинные');
-    if (!isRussianPhone(n.phone)) throw new ApiError(400, 'Укажите российский номер телефона клиента полностью, например +7 900 123-45-67');
-    if (!Number.isInteger(n.total) || n.total <= 0 || n.total > MAX_TOTAL) throw new ApiError(400, 'Стоимость должна быть целым числом рублей больше нуля и не больше 10 млрд');
-    if (!Number.isInteger(n.downPct) || n.downPct < 1 || n.downPct > 99) throw new ApiError(400, 'Взнос указывается в процентах от 1 до 99');
-    if (!Number.isInteger(n.term) || n.term < 1 || n.term > 120) throw new ApiError(400, 'Срок рассрочки от 1 до 120 месяцев');
-    if (n.total - downAmount(n) < n.term) throw new ApiError(400, 'Сумма рассрочки слишком мала для такого срока: каждый платёж должен быть не меньше 1 ₽');
+    validateDeal(n);
     const count = (this.db.prepare('SELECT COUNT(*) AS c FROM deals').get() as { c: number }).c;
     const id = opts.id ?? randomUUID();
     const no = `Д-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
@@ -141,6 +149,36 @@ export class DealService {
     // The deal exists either way; if the SMS fails, the manager sees it in the history and can resend or copy the link.
     this.sms(id, token, n.phone, this.inviteText(seller.name, token)).catch(() => {});
     return this.byId(id);
+  }
+
+  /**
+   * Corrects a deal the client has not accepted yet: a typo in the name, phone or price, other terms.
+   * The name only until the client confirms the passport (then it comes from the passport), the phone only before
+   * the client confirms it by code; the terms until the client accepts the contract.
+   */
+  update(id: string, n: NewDeal, by?: string) {
+    const d = this.byId(id);
+    if (!['invited', 'phone', 'documents', 'contract'].includes(d.stage)) {
+      throw new ApiError(409, 'Клиент уже принял договор, условия менять нельзя. Отмените сделку и создайте новую.');
+    }
+    validateDeal(n);
+    const before = { clientName: d.clientName, phone: d.phone, subject: d.subject, total: d.total, downPct: d.downPct, term: d.term };
+    const after = { ...before, subject: n.subject.trim(), total: n.total, downPct: n.downPct, term: n.term };
+    if (n.clientName.trim() !== d.clientName) {
+      if (d.passport) throw new ApiError(409, 'ФИО уже взято из паспорта клиента и не меняется.');
+      after.clientName = n.clientName.trim();
+    }
+    if (n.phone.replace(/\D/g, '') !== d.phone.replace(/\D/g, '')) {
+      if (d.stage !== 'invited') throw new ApiError(409, 'Клиент уже начал оформление и сам подтверждает свой телефон.');
+      after.phone = n.phone.trim();
+    }
+    const changed = (Object.keys(after) as (keyof typeof after)[]).filter((k) => after[k] !== before[k]);
+    if (!changed.length) return d;
+    this.set(d.id, {
+      client_name: after.clientName, phone: after.phone, subject: after.subject, total: after.total, down_pct: after.downPct, term: after.term,
+    });
+    this.log(d.id, 'edited', { changes: Object.fromEntries(changed.map((k) => [k, { from: before[k], to: after[k] }])), ...(by ? { by } : {}) });
+    return this.byId(d.id);
   }
 
   /** Address of the client's deal in the web app; null when the server does not know where the app lives. */
@@ -322,9 +360,11 @@ export class DealService {
   }
 
   /** The client has read the contract and accepted the agreement on the simple electronic signature. */
-  acceptContract(token: string, esignEdition: number) {
+  acceptContract(token: string, esignEdition: number, terms?: string) {
     const d = this.byToken(token);
     this.requireStage(d, 'contract');
+    // The manager may have corrected the deal while the client was reading: the client signs only what they saw.
+    if (terms !== undefined && terms !== termsKey(d)) throw new ApiError(409, 'Менеджер изменил условия сделки. Прочитайте договор ещё раз.');
     if (esignEdition !== ESIGN_AGREEMENT.edition) {
       throw new ApiError(400, 'Примите соглашение о простой электронной подписи, чтобы подписать договор');
     }
