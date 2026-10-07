@@ -1,0 +1,89 @@
+# Builds the Android app (APK) on GitHub's servers and publishes it on the "android-test" release page:
+# https://github.com/ivan20200828-a11y/-/releases/tag/android-test
+# Runs on every push to main that touches the app, or by hand (Actions → Android APK → Run workflow).
+#
+# Signing: without secrets the APK is signed with the standard test key, so a new test build installs over the old one.
+# For the store, add repository secrets ANDROID_KEYSTORE (base64 of the .jks file), ANDROID_KEYSTORE_PASSWORD,
+# ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD; the APK is then signed with that key instead.
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['src/**', 'assets/**', 'app.json', 'app.config.js', 'package.json', 'package-lock.json', '.github/workflows/android.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Empty: the phone asks for the server address on the home screen («Адрес сервера»).
+      EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: npm ci
+
+      - name: Generate the Android project
+        run: npx expo prebuild -p android --no-install
+
+      - name: Build the APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+
+      - name: Sign with the release key, if one is set up
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          if [ -n "$KEYSTORE" ]; then
+            echo "$KEYSTORE" | base64 -d > release.jks
+            APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+            "$APKSIGNER" sign --ks release.jks --ks-pass env:KEYSTORE_PASSWORD --ks-key-alias "$KEY_ALIAS" --key-pass env:KEY_PASSWORD "$APK"
+            rm release.jks
+          fi
+          cp "$APK" sdelka-online.apk
+          ls -l sdelka-online.apk
+
+      - name: Publish on the release page
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="Тестовая сборка для Android от $(TZ=Europe/Moscow date '+%d.%m.%Y %H:%M') МСК, версия кода ${GITHUB_SHA::7}.
+          Скачайте sdelka-online.apk на телефон и откройте. Android попросит разрешить установку из этого источника.
+          При первом запуске укажите адрес сервера: на главном экране «Изменить адрес сервера»."
+          if gh release view android-test >/dev/null 2>&1; then
+            gh release upload android-test sdelka-online.apk --clobber
+            gh release edit android-test --notes "$NOTES" --target "$GITHUB_SHA"
+          else
+            gh release create android-test sdelka-online.apk --prerelease --title "Сделка онлайн для Android (тест)" --notes "$NOTES" --target "$GITHUB_SHA"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdelka-online-apk
+          path: sdelka-online.apk
+          retention-days: 14
