@@ -49,6 +49,14 @@
           "photosPermission": "Доступ к фото нужен, чтобы загрузить фото паспорта.",
           "microphonePermission": false
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Камера нужна, чтобы сфотографировать паспорт, сделать селфи и отсканировать QR-код с адресом сервера.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
       ]
     ],
     "experiments": {

@@ -340,3 +340,14 @@ test('the payment schedule downloads as a calendar file', async () => {
   assert.match(unfolded, /Лодка\\; мотор/);
   for (const line of ics.split('\r\n')) assert.ok(Buffer.byteLength(line) <= 75, line);
 });
+
+test('managers get the phone addresses with QR codes', async () => {
+  const { app, auth: accounts } = buildApp({ db: openDb(':memory:'), providers: testProviders, phoneUrls: () => ['http://192.168.1.10:3000'] });
+  accounts.addManager('m@test.ru', 'Тест', 'secret-pass', true);
+  assert.equal((await app.inject({ method: 'GET', url: '/api/connect' })).statusCode, 401);
+  const token = (await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'm@test.ru', password: 'secret-pass' } })).json().token;
+  const { urls } = (await app.inject({ method: 'GET', url: '/api/connect', headers: { authorization: `Bearer ${token}` } })).json();
+  assert.equal(urls.length, 1);
+  assert.equal(urls[0].url, 'http://192.168.1.10:3000');
+  assert.match(urls[0].qr, /^<svg[^>]*>.*<\/svg>\s*$/s);
+});

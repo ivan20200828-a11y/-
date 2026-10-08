@@ -8,6 +8,8 @@ export type TestPart = 'sms' | 'kyc' | 'payments';
 /** Server address built into the app. Set EXPO_PUBLIC_API_URL when the server runs elsewhere (a phone cannot reach "localhost" on your computer). */
 const BUILT_IN_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 let API_URL = BUILT_IN_URL;
+/** A phone cannot reach the computer's own "localhost": such a build needs the server's address first. */
+const needsAddress = (url: string) => /\/\/(localhost|127\.0\.0\.1)\b/.test(url);
 let testParts: Promise<TestPart[]> | null = null;
 
 /**
@@ -19,6 +21,8 @@ export const serverUrl = {
   get: () => API_URL,
   builtIn: BUILT_IN_URL,
   canChange: Platform.OS !== 'web',
+  /** The phone app has no working server address yet: the home screen asks to connect. */
+  missing: () => Platform.OS !== 'web' && needsAddress(API_URL),
   async load() {
     if (Platform.OS === 'web') return;
     API_URL = (await savedServerUrl.get()) ?? BUILT_IN_URL;
@@ -116,6 +120,8 @@ export const authApi = {
 };
 
 export const managerApi = {
+  /** Addresses phones reach this server by, each with its QR code as SVG. */
+  connect: async () => (await call<{ urls: { url: string; qr: string }[] }>('/api/connect', { manager: true })).urls,
   list: async () => (await call<{ deals: WireDeal[] }>('/api/deals', { manager: true })).deals.map(hydrate),
   get: async (id: string) => {
     const r = await call<{ deal: WireDeal; events: { at: string; type: string; data: unknown }[]; inviteUrl: string | null }>(

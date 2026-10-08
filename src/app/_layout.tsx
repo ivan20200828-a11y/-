@@ -35,6 +35,7 @@ export default function RootLayout() {
           <Stack.Screen name="manager/team" options={{ title: 'Сотрудники' }} />
           <Stack.Screen name="manager/company" options={{ title: 'Компания' }} />
           <Stack.Screen name="manager/password" options={{ title: 'Пароль' }} />
+          <Stack.Screen name="manager/connect" options={{ title: 'Подключить телефон' }} />
         </Stack>
       </ClientProvider>
     </ThemeProvider>

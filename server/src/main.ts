@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { BackupService } from './backup.ts';
+import { lanAddresses, qrTerminal } from './connect.ts';
 import { openDb } from './db.ts';
 import { buildApp } from './app.ts';
 import { KNOWN_PASSWORDS } from './auth.ts';
@@ -16,11 +17,13 @@ const backups = process.env.BACKUP_DIR === 'off'
   : new BackupService(db, process.env.BACKUP_DIR ?? path.join(path.dirname(path.resolve(dbFile)), 'backups'), Number(process.env.BACKUP_KEEP ?? 14));
 
 const providers = providersFromEnv();
-const { app, deals, auth } = buildApp({ db, providers, logger: true, appUrl: process.env.APP_URL ?? `http://localhost:${port}`, backups, trustProxy: process.env.TRUST_PROXY === '1', webDir: process.env.WEB_DIR });
-
 // A working server: clients reach it by a real https address. Demo accounts and demo deals are not allowed there.
 const appUrl = process.env.APP_URL ?? '';
 const live = /^https:\/\//.test(appUrl) && !/\/\/(localhost|127\.0\.0\.1)\b/.test(appUrl);
+// Phones connect by the working address, or on a computer by its address in the office Wi-Fi.
+const phoneUrls = () => (live ? [appUrl.replace(/\/+$/, '')] : lanAddresses(port));
+
+const { app, deals, auth } = buildApp({ phoneUrls, db, providers, logger: true, appUrl: process.env.APP_URL ?? `http://localhost:${port}`, backups, trustProxy: process.env.TRUST_PROXY === '1', webDir: process.env.WEB_DIR });
 
 // First start: create the first manager account from the environment, or a demo one on a computer.
 if (!auth.hasManagers()) {
@@ -44,6 +47,16 @@ if (!live && process.env.SEED !== 'off') {
   await advanceDemo(deals);
 }
 await app.listen({ port, host: '0.0.0.0' });
+// On a computer: where to open the app, and a code the phone app scans to connect («Подключить по QR-коду»).
+if (!live) {
+  const [phone, ...other] = lanAddresses(port);
+  console.log(`\nСделка онлайн запущена. На этом компьютере: http://localhost:${port}`);
+  if (phone) {
+    console.log(`С телефона в той же сети Wi-Fi: ${phone}${other.length ? ` (или ${other.join(', ')})` : ''}`);
+    console.log('Чтобы подключить приложение, нажмите в нём «Подключить по QR-коду» и наведите камеру на код:\n');
+    console.log(await qrTerminal(phone));
+  }
+}
 const test = testParts(providers);
 if (test.length) app.log.warn(`В тестовом режиме: ${test.join(', ')}`);
 if (live) {

@@ -10,6 +10,7 @@ import { snapshot, type BackupService } from './backup.ts';
 import { RateLimiter } from './rate-limit.ts';
 import { contractPdf, paymentsPdf } from './contract-pdf.ts';
 import { scheduleIcs } from './calendar.ts';
+import { qrSvg } from './connect.ts';
 import type { DB } from './db.ts';
 import { ESIGN_AGREEMENT } from './esign.ts';
 import { ApiError, DealService, type NewDeal } from './deals.ts';
@@ -25,6 +26,8 @@ export type AppOptions = {
   backups?: BackupService;
   /** Behind a reverse proxy (Caddy): take the client's address from X-Forwarded-For. */
   trustProxy?: boolean;
+  /** Addresses phones connect to: the working https address, or this computer's addresses in the office Wi-Fi. */
+  phoneUrls?: () => string[];
 };
 
 /** Today's date in Moscow for file names, 2026-10-07. */
@@ -32,7 +35,7 @@ const moscowDate = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Eur
 
 const image = (b64: unknown) => (typeof b64 === 'string' && b64.length > 0 ? Buffer.from(b64.replace(/^data:[^,]+,/, ''), 'base64') : null);
 
-export function buildApp({ db, providers, logger = false, appUrl, webDir, backups, trustProxy = false }: AppOptions): { app: FastifyInstance; deals: DealService; auth: AuthService } {
+export function buildApp({ db, providers, logger = false, appUrl, webDir, backups, trustProxy = false, phoneUrls = () => [] }: AppOptions): { app: FastifyInstance; deals: DealService; auth: AuthService } {
   // Client addresses carry the deal token, which opens the client's passport data: the log keeps only its start.
   const hideToken = (url: string) => url.replace(/(\/api\/client\/[^/?]{4})[^/?]*/, '$1…').replace(/([?&](t|key)=)[^&]*/g, '$1…');
   const app = Fastify({
@@ -99,6 +102,8 @@ export function buildApp({ db, providers, logger = false, appUrl, webDir, backup
       return { manager: { ...manager, knownPassword: auth.hasKnownPassword(manager.id) } };
     });
     m.get('/api/deals', async () => ({ deals: deals.list() }));
+    // «Подключить телефон»: the addresses phones reach this server by, each with its QR code for the app's scanner.
+    m.get('/api/connect', async () => ({ urls: await Promise.all(phoneUrls().map(async (url) => ({ url, qr: await qrSvg(url) }))) }));
     const who = (req: unknown) => (req as { manager: Manager }).manager;
     m.post('/api/deals', async (req, reply) => reply.code(201).send({ deal: deals.create(req.body as NewDeal, {}, who(req).name) }));
     m.get('/api/deals/:id', async (req) => {

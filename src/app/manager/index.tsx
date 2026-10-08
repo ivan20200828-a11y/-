@@ -58,6 +58,7 @@ export default function Deals() {
         <Row>
           {me?.admin && <Button ghost title="Сотрудники" onPress={() => router.push('/manager/team')} />}
           {me?.admin && <Button ghost title="Компания" onPress={() => router.push('/manager/company')} />}
+          <Button ghost title="Подключить телефон" onPress={() => router.push('/manager/connect')} />
           <Button ghost title="Сменить пароль" onPress={() => router.push('/manager/password')} />
           <Button ghost title="Выйти" onPress={async () => { await authApi.logout(); router.replace('/manager/login'); }} />
         </Row>

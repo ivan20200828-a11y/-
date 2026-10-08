@@ -13,6 +13,14 @@ export default function Home() {
   const open = () => router.push(`/client?t=${encodeURIComponent(code.trim())}`);
   return (
     <Screen>
+      {serverUrl.missing() && (
+        <Card>
+          <H2>Подключите приложение к серверу</H2>
+          <Hint>Откройте окно сервера на компьютере или раздел «Подключить телефон» у менеджера и отсканируйте QR-код.</Hint>
+          <Button title="Подключить по QR-коду" onPress={() => router.push('/server?scan=1')} />
+          <Button ghost title="Ввести адрес вручную" onPress={() => router.push('/server')} />
+        </Card>
+      )}
       <Card>
         <H1>Сделка онлайн</H1>
         <Hint>Удалённое оформление сделок: проверка личности, договор, подпись по SMS, первоначальный взнос и график платежей.</Hint>
@@ -31,7 +39,7 @@ export default function Home() {
         <Hint>Создавать сделки и следить, на каком этапе клиент.</Hint>
         <Button ghost title="Открыть список сделок" onPress={() => router.push('/manager')} />
       </Card>
-      {serverUrl.canChange && (
+      {serverUrl.canChange && !serverUrl.missing() && (
         <Card>
           <Hint>Сервер: {serverUrl.get()}</Hint>
           <Button ghost title="Изменить адрес сервера" onPress={() => router.push('/server')} />
