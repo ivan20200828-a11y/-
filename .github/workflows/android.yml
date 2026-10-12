@@ -49,7 +49,7 @@ jobs:
 
       - name: Build the APK
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64
 
       - name: Sign with the release key, if one is set up
         env:
@@ -87,3 +87,45 @@ jobs:
           name: sdelka-online-apk
           path: sdelka-online.apk
           retention-days: 14
+
+  # Starts the new APK on an Android emulator and keeps the proof on the release page:
+  # check-screen.png (what the phone shows after start) and check-log.txt (the app's log, with any crash).
+  check:
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdelka-online-apk
+
+      - name: Allow the emulator to use hardware acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install and start the app on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: |
+            adb install -r sdelka-online.apk
+            adb logcat -c
+            adb shell monkey -p ru.sdelka.online -c android.intent.category.LAUNCHER 1
+            sleep 40
+            adb exec-out screencap -p > check-screen.png
+            (echo "app process: $(adb shell pidof ru.sdelka.online || echo 'not running')"; adb logcat -d -v time) > check-log.txt
+
+      - name: Publish the check on the release page
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l check-screen.png check-log.txt || true
+          grep -E "FATAL|AndroidRuntime|ReactNativeJS|Error" check-log.txt | head -80 || true
+          gh release upload android-test check-screen.png check-log.txt --clobber -R "$GITHUB_REPOSITORY" || true
