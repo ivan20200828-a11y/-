@@ -21,7 +21,8 @@ export default function ServerAddress() {
     setError('');
     try {
       await serverUrl.set(next);
-      // Deals and sign-ins belong to the old server: start again from the home screen.
+      // Deals and sign-ins belong to the old server: start again from a fresh home screen, with no way back here.
+      if (router.canDismiss()) router.dismissAll();
       router.replace('/');
     } catch (e) {
       setError((e as Error).message);

@@ -27,7 +27,8 @@ PY
 )
   if [ -n "$xy" ]; then adb shell input tap $xy; return; fi
   # Further down the screen: scroll and look again.
-  adb shell input swipe 500 1400 500 500 300; sleep 1
+  size=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); w=${size%x*}; h=${size#*x}
+  adb shell input swipe $((w / 2)) $((h * 3 / 4)) $((w / 2)) $((h / 4)) 300; sleep 1
   done
   echo "::error::Не нашёл на экране: $1"; adb exec-out screencap -p > check/not-found.png; exit 1
 }
