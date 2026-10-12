@@ -68,36 +68,36 @@ jobs:
           cp "$APK" sdelka-online.apk
           ls -l sdelka-online.apk
 
-      - name: Publish on the release page
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          NOTES="Тестовая сборка для Android от $(TZ=Europe/Moscow date '+%d.%m.%Y %H:%M') МСК, версия кода ${GITHUB_SHA::7}.
-          Скачайте sdelka-online.apk на телефон и откройте. Android попросит разрешить установку из этого источника.
-          При первом запуске укажите адрес сервера: на главном экране «Изменить адрес сервера»."
-          if gh release view android-test >/dev/null 2>&1; then
-            gh release upload android-test sdelka-online.apk --clobber
-            gh release edit android-test --notes "$NOTES" --target "$GITHUB_SHA"
-          else
-            gh release create android-test sdelka-online.apk --prerelease --title "Сделка онлайн для Android (тест)" --notes "$NOTES" --target "$GITHUB_SHA"
-          fi
-
       - uses: actions/upload-artifact@v4
         with:
           name: sdelka-online-apk
           path: sdelka-online.apk
           retention-days: 14
 
-  # Starts the new APK on an Android emulator and keeps the proof on the release page:
-  # check-screen.png (what the phone shows after start) and check-log.txt (the app's log, with any crash).
+  # Starts the new APK on an Android emulator against a test server, steps through the first screens and publishes
+  # the APK only when it works. The screenshots go to the release page next to it.
   check:
     needs: apk
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - uses: actions/download-artifact@v4
         with:
           name: sdelka-online-apk
+
+      - name: Start the test server
+        working-directory: server
+        run: |
+          npm ci --omit=dev --no-audit --no-fund
+          (BACKUP_DIR=off DB_FILE=/tmp/check.db node --no-warnings=ExperimentalWarning src/main.ts > /tmp/server.log 2>&1 &)
+          sleep 5
+          curl -sf http://localhost:3000/api/health
 
       - name: Allow the emulator to use hardware acceleration
         run: |
@@ -105,7 +105,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Install and start the app on an emulator
+      - name: Run the app on an emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -113,19 +113,26 @@ jobs:
           target: google_apis
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          script: |
-            adb install -r sdelka-online.apk
-            adb logcat -c
-            adb shell monkey -p ru.sdelka.online -c android.intent.category.LAUNCHER 1
-            sleep 40
-            adb exec-out screencap -p > check-screen.png
-            (echo "app process: $(adb shell pidof ru.sdelka.online || echo 'not running')"; adb logcat -d -v time) > check-log.txt
+          script: sh scripts/android-check.sh; status=$?; adb logcat -d -v time > check/log.txt; exit $status
 
-      - name: Publish the check on the release page
+      - name: Show the app's errors
         if: always()
+        run: grep -E "FATAL|AndroidRuntime: |E/ReactNativeJS" check/log.txt | head -60 || true
+
+      - name: Publish the APK on the release page
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ls -l check-screen.png check-log.txt || true
-          grep -E "FATAL|AndroidRuntime|ReactNativeJS|Error" check-log.txt | head -80 || true
-          gh release upload android-test check-screen.png check-log.txt --clobber -R "$GITHUB_REPOSITORY" || true
+          NOTES="Сборка для Android от $(TZ=Europe/Moscow date '+%d.%m.%Y %H:%M') МСК, версия кода ${GITHUB_SHA::7}. Проверена на эмуляторе Android 14: запуск, подключение к серверу, вход менеджера, список сделок.
+          Скачайте sdelka-online.apk на телефон и откройте. Android попросит разрешить установку из этого источника.
+          При первом запуске нажмите «Подключить по QR-коду» и наведите камеру на код в окне сервера."
+          gh release view android-test >/dev/null 2>&1 || gh release create android-test --prerelease --title "Сделка онлайн для Android" --notes "$NOTES"
+          gh release upload android-test sdelka-online.apk check/1-first-start.png check/2-connected.png check/3-manager-login.png check/4-deals.png --clobber
+          gh release edit android-test --notes "$NOTES"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-check
+          path: check/
+          retention-days: 14

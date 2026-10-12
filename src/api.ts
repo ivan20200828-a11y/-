@@ -5,11 +5,14 @@ import type { Company, Deal, PaidBy, Passport, PayMethod, PayWhat } from '@/stat
 
 export type TestPart = 'sms' | 'kyc' | 'payments';
 
-/** Server address built into the app. Set EXPO_PUBLIC_API_URL when the server runs elsewhere (a phone cannot reach "localhost" on your computer). */
-const BUILT_IN_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+/**
+ * Server address built into the app (EXPO_PUBLIC_API_URL). The web build leaves it empty and uses its own address.
+ * A phone build without one asks to connect on the home screen; it never sends requests to an empty address.
+ */
+const BUILT_IN_URL = (process.env.EXPO_PUBLIC_API_URL ?? (Platform.OS === 'web' ? 'http://localhost:3000' : '')).trim().replace(/\/+$/, '');
 let API_URL = BUILT_IN_URL;
 /** A phone cannot reach the computer's own "localhost": such a build needs the server's address first. */
-const needsAddress = (url: string) => /\/\/(localhost|127\.0\.0\.1)\b/.test(url);
+const needsAddress = (url: string) => !url || /\/\/(localhost|127\.0\.0\.1)\b/.test(url);
 let testParts: Promise<TestPart[]> | null = null;
 
 /**
@@ -20,6 +23,8 @@ let testParts: Promise<TestPart[]> | null = null;
 export const serverUrl = {
   get: () => API_URL,
   builtIn: BUILT_IN_URL,
+  /** The build carries a working address of its own, so «Вернуть встроенный адрес» makes sense. */
+  hasBuiltIn: !needsAddress(BUILT_IN_URL),
   canChange: Platform.OS !== 'web',
   /** The phone app has no working server address yet: the home screen asks to connect. */
   missing: () => Platform.OS !== 'web' && needsAddress(API_URL),
@@ -43,7 +48,9 @@ export const serverUrl = {
 
 /** Which services the server still imitates (SMS, identity check, payments); asked once per app start. */
 export function serverTestParts() {
-  testParts ??= fetch(`${API_URL}/api/health`)
+  if (serverUrl.missing()) return Promise.resolve([] as TestPart[]);
+  testParts ??= Promise.resolve()
+    .then(() => fetch(`${API_URL}/api/health`))
     .then((r) => r.json())
     .then((h: { test?: TestPart[] }) => h.test ?? [])
     .catch(() => { testParts = null; return []; });
@@ -84,6 +91,7 @@ function hydrate(d: WireDeal): Deal {
 }
 
 async function call<T>(path: string, init: { method?: string; body?: unknown; manager?: boolean } = {}): Promise<T> {
+  if (serverUrl.missing()) throw new ApiError('Приложение ещё не подключено к серверу. На главном экране нажмите «Подключить по QR-коду».');
   const token = init.manager ? await session.get() : null;
   let res: Response;
   try {

@@ -1,10 +1,24 @@
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, type ErrorBoundaryProps } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useColorScheme } from 'react-native';
 
 import { serverUrl } from '@/api';
 
 import { ClientProvider } from '@/state/deals';
+import { Button, Card, H2, Hint, Screen } from '@/ui/kit';
+
+/** Any screen that fails shows this instead of closing the app. */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return (
+    <Screen>
+      <Card>
+        <H2>Что-то пошло не так</H2>
+        <Hint>{error.message}</Hint>
+        <Button title="Попробовать ещё раз" onPress={retry} />
+      </Card>
+    </Screen>
+  );
+}
 
 export default function RootLayout() {
   const scheme = useColorScheme();

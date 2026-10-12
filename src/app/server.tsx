@@ -40,10 +40,11 @@ export default function ServerAddress() {
           ? <QrScanner onClose={() => setScan(false)} onAddress={(u) => { setScan(false); setUrl(u); apply(u); }} />
           : <Button title="Подключить по QR-коду" onPress={() => setScan(true)} disabled={busy} />}
         <Field label="Или впишите адрес" value={url} onChangeText={setUrl} placeholder="http://192.168.1.10:3000"
-          autoCapitalize="none" autoCorrect={false} keyboardType="url" />
+          autoCapitalize="none" autoCorrect={false} keyboardType="url" returnKeyType="done"
+          onSubmitEditing={() => url.trim() && apply(url)} />
         <Button ghost title="Проверить и сохранить" onPress={() => apply(url)} loading={busy} disabled={!url.trim()} />
         {!!error && <ErrorText>{error}</ErrorText>}
-        {!serverUrl.missing() && serverUrl.get() !== serverUrl.builtIn && (
+        {serverUrl.hasBuiltIn && serverUrl.get() !== serverUrl.builtIn && (
           <Button ghost title="Вернуть встроенный адрес" onPress={() => apply(null)} disabled={busy} />
         )}
       </Card>
