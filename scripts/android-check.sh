@@ -6,7 +6,7 @@ PKG=ru.sdelka.online
 mkdir -p check
 
 alive() {
-  if ! adb shell pidof "$PKG" >/dev/null; then echo "Приложение закрылось на шаге: $1"; exit 1; fi
+  if ! adb shell pidof "$PKG" >/dev/null; then echo "::error::Приложение закрылось на шаге: $1"; exit 1; fi
 }
 shot() { adb exec-out screencap -p > "check/$1.png"; alive "$1"; }
 # Taps the first element with this text, or with a second argument "edit" the text field number $1 (0 is the first).
@@ -29,7 +29,7 @@ PY
   # Further down the screen: scroll and look again.
   adb shell input swipe 500 1400 500 500 300; sleep 1
   done
-  echo "Не нашёл на экране: $1"; exit 1
+  echo "::error::Не нашёл на экране: $1"; adb exec-out screencap -p > check/not-found.png; exit 1
 }
 
 adb install -r sdelka-online.apk

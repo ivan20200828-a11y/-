@@ -117,7 +117,16 @@ jobs:
 
       - name: Show the app's errors
         if: always()
-        run: grep -E 'FATAL|AndroidRuntime|E/ReactNativeJS' check/log.txt | head -60 || true
+        run: grep -E 'FATAL|AndroidRuntime|E/ReactNativeJS' check/log.txt | head -8 | cut -c1-400 | sed 's/^/::warning::/' || true
+
+      # A failed check keeps its screenshots and log on a separate page, so the working APK stays as it was.
+      - name: Keep the failed check
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view android-check >/dev/null 2>&1 || gh release create android-check --prerelease --title "Проверка Android (не прошла)" --notes "Снимки экрана и журнал последней непройденной проверки."
+          gh release upload android-check check/*.png check/log.txt --clobber || true
 
       - name: Publish the APK on the release page
         env:
