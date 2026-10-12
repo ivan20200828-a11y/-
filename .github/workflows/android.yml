@@ -117,7 +117,7 @@ jobs:
 
       - name: Show the app's errors
         if: always()
-        run: grep -E "FATAL|AndroidRuntime: |E/ReactNativeJS" check/log.txt | head -60 || true
+        run: grep -E 'FATAL|AndroidRuntime|E/ReactNativeJS' check/log.txt | head -60 || true
 
       - name: Publish the APK on the release page
         env:
