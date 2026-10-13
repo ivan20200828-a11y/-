@@ -3,8 +3,11 @@
 // The store build only talks https.
 module.exports = ({ config }) => {
   const testBuild = process.env.EAS_BUILD_PROFILE !== 'production';
+  // Each build on GitHub gets the next number, so a newer APK installs over an older one as an update.
+  const build = Number(process.env.ANDROID_BUILD_NUMBER) || undefined;
   return {
     ...config,
+    android: { ...config.android, ...(build ? { versionCode: build } : {}) },
     ios: {
       ...config.ios,
       infoPlist: {

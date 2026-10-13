@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View,
   type TextInputProps, type TextStyle, type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,11 +10,16 @@ import type { Stage } from '@/state/types';
 
 import { useColors } from './theme';
 
-export function Screen({ children, wide }: { children: ReactNode; wide?: boolean }) {
+export function Screen({ children, wide, onRefresh, refreshing = false }: {
+  children: ReactNode; wide?: boolean;
+  /** Pull down to reload the screen's data. */
+  onRefresh?: () => void; refreshing?: boolean;
+}) {
   const c = useColors();
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: c.bg }} edges={['bottom', 'left', 'right']}>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled"
+        refreshControl={onRefresh && <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} colors={[c.accent]} />}>
         <View style={{ width: '100%', maxWidth: wide ? 900 : 480, alignSelf: 'center', gap: 14 }}>
           <TestBanner />
           {children}

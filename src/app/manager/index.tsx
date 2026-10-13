@@ -37,7 +37,7 @@ const matchesSearch = (d: Deal, q: string) => {
 };
 
 export default function Deals() {
-  const { deals, error } = useDealList();
+  const { deals, error, refresh, refreshing } = useDealList();
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
   const [me, setMe] = useState<Manager | null>(null);
@@ -50,7 +50,7 @@ export default function Deals() {
   }, []);
   const shown = deals ? overdueFirst(deals).filter((d) => matchesFilter(d, filter) && matchesSearch(d, search)) : null;
   return (
-    <Screen wide>
+    <Screen wide onRefresh={refresh} refreshing={refreshing}>
       <Card>
         <H2>Сделки</H2>
         <Hint>Статус меняется, когда клиент проходит этапы. Сделка демо-клиента обновляется, пока вы проходите оформление в разделе «Я клиент».</Hint>

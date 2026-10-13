@@ -27,6 +27,7 @@ jobs:
     env:
       # Empty: the phone asks for the server address on the home screen («Адрес сервера»).
       EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
+      ANDROID_BUILD_NUMBER: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
 
@@ -47,9 +48,14 @@ jobs:
       - name: Generate the Android project
         run: npx expo prebuild -p android --no-install
 
-      - name: Build the APK
+      # Phones: ARM only, so the file stays small. The emulator check gets its own x86_64 build.
+      - name: Build the APK for phones
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a && cp app/build/outputs/apk/release/app-release.apk ../phone.apk
+
+      - name: Build the APK for the emulator
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=x86_64 && cp app/build/outputs/apk/release/app-release.apk ../emulator.apk
 
       - name: Sign with the release key, if one is set up
         env:
@@ -58,20 +64,24 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          APK=android/app/build/outputs/apk/release/app-release.apk
           if [ -n "$KEYSTORE" ]; then
             echo "$KEYSTORE" | base64 -d > release.jks
             APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
-            "$APKSIGNER" sign --ks release.jks --ks-pass env:KEYSTORE_PASSWORD --ks-key-alias "$KEY_ALIAS" --key-pass env:KEY_PASSWORD "$APK"
+            for APK in phone.apk emulator.apk; do
+              "$APKSIGNER" sign --ks release.jks --ks-pass env:KEYSTORE_PASSWORD --ks-key-alias "$KEY_ALIAS" --key-pass env:KEY_PASSWORD "$APK"
+            done
             rm release.jks
           fi
-          cp "$APK" sdelka-online.apk
-          ls -l sdelka-online.apk
+          mv phone.apk sdelka-online.apk
+          mv emulator.apk sdelka-online-emulator.apk
+          ls -l *.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: sdelka-online-apk
-          path: sdelka-online.apk
+          path: |
+            sdelka-online.apk
+            sdelka-online-emulator.apk
           retention-days: 14
 
   # Starts the new APK on an Android emulator against a test server, steps through the first screens and publishes
@@ -132,11 +142,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="Сборка для Android от $(TZ=Europe/Moscow date '+%d.%m.%Y %H:%M') МСК, версия кода ${GITHUB_SHA::7}. Проверена на эмуляторе Android 14: запуск, подключение к серверу, вход менеджера, список сделок.
+          NOTES="Сборка для Android от $(TZ=Europe/Moscow date '+%d.%m.%Y %H:%M') МСК, версия кода ${GITHUB_SHA::7}. Сборка ${{ github.run_number }}, проверена на эмуляторе Android 14: запуск, подключение к серверу, вход менеджера, список сделок, кабинет клиента, тёмная тема.
           Скачайте sdelka-online.apk на телефон и откройте. Android попросит разрешить установку из этого источника.
           При первом запуске нажмите «Подключить по QR-коду» и наведите камеру на код в окне сервера."
           gh release view android-test >/dev/null 2>&1 || gh release create android-test --prerelease --title "Сделка онлайн для Android" --notes "$NOTES"
-          gh release upload android-test sdelka-online.apk check/1-first-start.png check/2-connected.png check/3-manager-login.png check/4-deals.png --clobber
+          gh release upload android-test sdelka-online.apk check/*.png --clobber
           gh release edit android-test --notes "$NOTES"
 
       - uses: actions/upload-artifact@v4

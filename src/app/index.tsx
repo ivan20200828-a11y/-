@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 
-import { serverUrl } from '@/api';
+import { appVersion, serverUrl } from '@/api';
 import { DEMO_TOKEN, useClient } from '@/state/deals';
 import { Button, Card, Field, H1, H2, Hint, Screen } from '@/ui/kit';
 
@@ -11,16 +11,26 @@ export default function Home() {
   const hasDeal = !!token && token !== DEMO_TOKEN;
   // An invitation SMS without a link carries the code; it may be pasted with spaces around it.
   const open = () => router.push(`/client?t=${encodeURIComponent(code.trim())}`);
-  return (
-    <Screen>
-      {serverUrl.missing() && (
+  // A phone that is not connected yet can do nothing else: only the connection card is shown.
+  if (serverUrl.missing()) {
+    return (
+      <Screen>
+        <Card>
+          <H1>Сделка онлайн</H1>
+          <Hint>Удалённое оформление сделок: проверка личности, договор, подпись по SMS, первоначальный взнос и график платежей.</Hint>
+        </Card>
         <Card>
           <H2>Подключите приложение к серверу</H2>
           <Hint>Откройте окно сервера на компьютере или раздел «Подключить телефон» у менеджера и отсканируйте QR-код.</Hint>
           <Button title="Подключить по QR-коду" onPress={() => router.push('/server?scan=1')} />
           <Button ghost title="Ввести адрес вручную" onPress={() => router.push('/server')} />
         </Card>
-      )}
+        <Version />
+      </Screen>
+    );
+  }
+  return (
+    <Screen>
       <Card>
         <H1>Сделка онлайн</H1>
         <Hint>Удалённое оформление сделок: проверка личности, договор, подпись по SMS, первоначальный взнос и график платежей.</Hint>
@@ -39,12 +49,19 @@ export default function Home() {
         <Hint>Создавать сделки и следить, на каком этапе клиент.</Hint>
         <Button ghost title="Открыть список сделок" onPress={() => router.push('/manager')} />
       </Card>
-      {serverUrl.canChange && !serverUrl.missing() && (
+      {serverUrl.canChange && (
         <Card>
           <Hint>Сервер: {serverUrl.get()}</Hint>
           <Button ghost title="Изменить адрес сервера" onPress={() => router.push('/server')} />
         </Card>
       )}
+      <Version />
     </Screen>
   );
+}
+
+/** Which build is installed, for support questions: «Версия 1.0.0 (сборка 12)». */
+function Version() {
+  if (!appVersion) return null;
+  return <Hint style={{ textAlign: 'center' }}>Версия {appVersion}</Hint>;
 }

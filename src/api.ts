@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 import { savedServerUrl, session } from '@/lib/session';
@@ -45,6 +46,13 @@ export const serverUrl = {
     await savedServerUrl.set(url ? next : null);
   },
 };
+
+/** The installed app's version with its build number on phones; empty on the web, where the page is always current. */
+export const appVersion = Platform.OS === 'web' ? '' : (() => {
+  const cfg = Constants.expoConfig;
+  const build = Platform.OS === 'android' ? cfg?.android?.versionCode : cfg?.ios?.buildNumber;
+  return `${cfg?.version ?? ''}${build ? ` (сборка ${build})` : ''}`.trim();
+})();
 
 /** Which services the server still imitates (SMS, identity check, payments); asked once per app start. */
 export function serverTestParts() {

@@ -103,12 +103,12 @@ function managerError(e: unknown) {
 export function useDealList() {
   const [deals, setDeals] = useState<Deal[] | null>(null);
   const [error, setError] = useState('');
-  useFocusEffect(
-    useCallback(() => {
-      managerApi.list().then((d) => { setDeals(d); setError(''); }, (e) => setError(managerError(e)));
-    }, []),
-  );
-  return { deals, error };
+  const [refreshing, setRefreshing] = useState(false);
+  const reload = useCallback(() => managerApi.list().then((d) => { setDeals(d); setError(''); }, (e) => setError(managerError(e))), []);
+  useFocusEffect(useCallback(() => { reload(); }, [reload]));
+  /** Pull-to-refresh on the phone. */
+  const refresh = useCallback(async () => { setRefreshing(true); await reload(); setRefreshing(false); }, [reload]);
+  return { deals, error, refresh, refreshing };
 }
 
 export function useDealDetails(id: string) {

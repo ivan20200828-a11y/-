@@ -33,7 +33,7 @@ PY
   echo "::error::Не нашёл на экране: $1"; adb exec-out screencap -p > check/not-found.png; exit 1
 }
 
-adb install -r sdelka-online.apk
+adb install -r sdelka-online-emulator.apk
 adb logcat -c
 adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null
 sleep 30
@@ -51,4 +51,12 @@ tap 0 edit; adb shell input text "manager@demo.ru"
 tap 1 edit; adb shell input text "demo1234"
 adb shell input keyevent 66; sleep 8
 shot 4-deals
-echo "Приложение работает: запуск, подключение к серверу, вход менеджера, список сделок."
+
+# The client's cabinet of a demo deal, opened by the app's own link (as an invitation SMS would).
+adb shell am start -W -a android.intent.action.VIEW -d "sdelka://client?t=demo-kovaleva" "$PKG" >/dev/null; sleep 8
+shot 5-client-cabinet
+
+adb shell cmd uimode night yes; sleep 4
+shot 6-dark-theme
+adb shell cmd uimode night no; sleep 2
+echo "Приложение работает: запуск, подключение к серверу, вход менеджера, список сделок, кабинет клиента, тёмная тема."
