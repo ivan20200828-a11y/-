@@ -165,7 +165,8 @@ export function KV({ rows }: { rows: [string, ReactNode][] }) {
     <View style={{ gap: 6 }}>
       {rows.map(([k, v]) => (
         <View key={k} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
-          <Text style={{ color: c.muted, fontSize: 15, flexShrink: 1 }}>{k}</Text>
+          {/* On a narrow phone the value wraps, the label keeps its words whole. */}
+          <Text style={{ color: c.muted, fontSize: 15, flexShrink: 0, maxWidth: '55%' }}>{k}</Text>
           <Text selectable style={{ color: c.fg, fontSize: 15, fontWeight: '600', textAlign: 'right', flexShrink: 1, fontVariant: ['tabular-nums'] }}>{v}</Text>
         </View>
       ))}
